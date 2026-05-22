@@ -23,7 +23,15 @@ from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import cm as rl_cm
+from reportlab.lib.colors import HexColor, black
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
 from config import CLAUDE_MODEL, CONTROL_RISK_SIGNALS
+
+RL_BLUE = HexColor('#2E74B5')
+RL_GREY = HexColor('#404040')
 
 _client: Optional[anthropic.Anthropic] = None
 _PROFILE_PATH = Path(__file__).parent / "data" / "candidate_profile.txt"
@@ -348,25 +356,96 @@ def build_cover_letter_docx(text: str) -> bytes:
     return buf.read()
 
 
-def docx_to_pdf_bytes(docx_bytes: bytes) -> Optional[bytes]:
-    """
-    Convert docx bytes to PDF. Uses LibreOffice if available (Mac/Linux),
-    otherwise returns None and the UI will offer docx-only download.
-    """
-    import subprocess, tempfile, shutil
+def _rl_style(name: str, **kw) -> ParagraphStyle:
+    return ParagraphStyle(name, **kw)
 
-    lo = shutil.which("soffice") or shutil.which("libreoffice")
-    if not lo:
-        return None
 
-    with tempfile.TemporaryDirectory() as tmp:
-        docx_path = Path(tmp) / "resume.docx"
-        docx_path.write_bytes(docx_bytes)
-        result = subprocess.run(
-            [lo, "--headless", "--convert-to", "pdf", "--outdir", tmp, str(docx_path)],
-            capture_output=True, timeout=30,
-        )
-        pdf_path = Path(tmp) / "resume.pdf"
-        if result.returncode == 0 and pdf_path.exists():
-            return pdf_path.read_bytes()
-    return None
+def build_resume_pdf(job: dict) -> bytes:
+    """Generate a PDF resume using reportlab — works on Streamlit Cloud."""
+    template = _pick_template(job)
+    content  = _tailor_content(job, template)
+    head_color = RL_BLUE if template == "risk" else black
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            topMargin=2*rl_cm, bottomMargin=2*rl_cm,
+                            leftMargin=2.54*rl_cm, rightMargin=2.54*rl_cm)
+
+    name_s    = _rl_style("Name",    fontName="Helvetica-Bold", fontSize=20, spaceAfter=3)
+    contact_s = _rl_style("Contact", fontName="Helvetica",      fontSize=10, textColor=RL_GREY, spaceAfter=2)
+    head_s    = _rl_style("Head",    fontName="Helvetica-Bold", fontSize=11, textColor=head_color, spaceBefore=10, spaceAfter=3)
+    body_s    = _rl_style("Body",    fontName="Helvetica",      fontSize=11, spaceAfter=3, leading=14)
+    bullet_s  = _rl_style("Bullet",  fontName="Helvetica",      fontSize=11, spaceAfter=2, leading=14, leftIndent=12)
+    role_s    = _rl_style("Role",    fontName="Helvetica-Bold", fontSize=11, spaceBefore=8, spaceAfter=2)
+    meta_s    = _rl_style("Meta",    fontName="Helvetica",      fontSize=11, textColor=RL_GREY, spaceAfter=3)
+
+    def hr(color=black):
+        return HRFlowable(width="100%", thickness=0.5, color=color, spaceBefore=4, spaceAfter=4)
+
+    story = []
+    story.append(Paragraph("Yang Yang", name_s))
+    if template == "risk":
+        story.append(hr(RL_BLUE))
+    story.append(Paragraph("Sydney NSW | Australian Permanent Resident", contact_s))
+    story.append(Paragraph("0401 877 625 | yy.lu.33@gmail.com", contact_s))
+    story.append(Spacer(1, 4))
+    if template == "lending":
+        story.append(hr())
+
+    story.append(Paragraph("Professional Summary", head_s))
+    for p in content["summary"]:
+        story.append(Paragraph(p, body_s))
+    if template == "lending":
+        story.append(hr())
+
+    story.append(Paragraph("Core Skills", head_s))
+    for skill in content["skills"]:
+        story.append(Paragraph(skill, body_s))
+    if template == "lending":
+        story.append(hr())
+
+    story.append(Paragraph("Professional Experience", head_s))
+    roles_order = [
+        ("Bank of China Australia – Credit Risk Manager",           "Sydney Head Office | 2019 – 2023"),
+        ("Bank of China Australia – Assistant Relationship Manager", "Hurstville Branch | 2016 – 2019"),
+        ("Bank of China Australia – Teller",                        "Hurstville Branch | 2013 – 2015"),
+    ]
+    for role_name, role_meta in roles_order:
+        story.append(Paragraph(role_name, role_s))
+        story.append(Paragraph(role_meta, meta_s))
+        bullets = []
+        for key, items in content["roles"].items():
+            if role_name.lower()[:20] in key.lower():
+                bullets = items
+                break
+        prefix = "–" if template == "risk" else "•"
+        for bt in bullets:
+            story.append(Paragraph(f"{prefix} {bt}", bullet_s))
+        if template == "lending":
+            story.append(hr())
+
+    story.append(Paragraph("Education", head_s))
+    story.append(Paragraph("Master of Finance – Western Sydney University", body_s))
+    story.append(Paragraph("Bachelor of Accounting – Southern Cross University", body_s))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
+
+
+def build_cover_letter_pdf(text: str) -> bytes:
+    """Generate a PDF cover letter using reportlab."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            topMargin=2.54*rl_cm, bottomMargin=2.54*rl_cm,
+                            leftMargin=2.54*rl_cm, rightMargin=2.54*rl_cm)
+    body_s = _rl_style("CLBody", fontName="Helvetica", fontSize=11, leading=16, spaceAfter=8)
+    story  = []
+    for line in text.splitlines():
+        if line.strip():
+            story.append(Paragraph(line.strip(), body_s))
+        else:
+            story.append(Spacer(1, 8))
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()

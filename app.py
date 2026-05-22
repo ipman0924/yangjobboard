@@ -1,6 +1,6 @@
 """
 Yang's Job Board — Streamlit web app.
-Interactive table + modal detail view. Clean dashboard design.
+Interactive table with inline expansion, favourites, and document generation.
 """
 
 import os
@@ -14,7 +14,6 @@ from pathlib import Path
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-# ── Page config (must be first) ───────────────────────────────────────────────
 st.set_page_config(
     page_title="Yang's Job Board",
     page_icon="💼",
@@ -32,8 +31,6 @@ def _secret(key: str) -> str:
 NOTION_KEY = _secret("NOTION_API_KEY")
 NOTION_DB  = _secret("NOTION_DATABASE_ID")
 os.environ.setdefault("ANTHROPIC_API_KEY", _secret("ANTHROPIC_API_KEY"))
-os.environ.setdefault("ADZUNA_APP_ID",     _secret("ADZUNA_APP_ID"))
-os.environ.setdefault("ADZUNA_APP_KEY",    _secret("ADZUNA_APP_KEY"))
 
 _d = NOTION_DB.replace("-", "")
 DB_UUID = (f"{_d[:8]}-{_d[8:12]}-{_d[12:16]}-{_d[16:20]}-{_d[20:]}"
@@ -46,75 +43,80 @@ HEADERS = {
 }
 
 STATUS_OPTIONS = ["New", "Applied", "Interview", "Offer", "Rejected"]
-STATUS_EMOJI   = {
+STATUS_BADGE   = {
     "New": "🔵 New", "Applied": "🟡 Applied", "Interview": "🟠 Interview",
     "Offer": "🟢 Offer", "Rejected": "🔴 Rejected", "Ignored": "⚫ Ignored",
 }
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-/* Layout */
 .main .block-container { padding: 1.5rem 2rem 2rem; max-width: 1400px; }
+h1 { font-size: 1.8rem !important; font-weight: 800 !important; }
+.sub  { color: #94a3b8; font-size: 0.82rem; margin-bottom: 1.2rem; }
 
-/* Header */
-h1 { font-size: 1.9rem !important; font-weight: 800 !important; margin-bottom: 0 !important; }
-.subtitle { color: #94a3b8; font-size: 0.85rem; margin-top: 0.1rem; margin-bottom: 1.5rem; }
-
-/* Metric cards */
 [data-testid="metric-container"] {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 10px; padding: 0.9rem 1.2rem;
+}
+[data-testid="stMetricLabel"] p {
+    font-size: 0.68rem !important; color: #94a3b8 !important;
+    text-transform: uppercase; letter-spacing: 0.06em;
+}
+[data-testid="stMetricValue"] { font-size: 1.8rem !important; font-weight: 800 !important; }
+
+.stTabs [data-baseweb="tab-list"] { border-bottom: 2px solid #334155; gap: 0; }
+.stTabs [data-baseweb="tab"] {
+    padding: 0.6rem 1.4rem; font-weight: 500;
+    color: #64748b; background: transparent; border: none;
+}
+.stTabs [aria-selected="true"] {
+    color: #f1f5f9 !important;
+    border-bottom: 2px solid #3b82f6 !important;
+}
+
+[data-testid="stDataFrame"] {
+    border-radius: 10px; border: 1px solid #334155; overflow: hidden;
+}
+
+/* Detail panel */
+.detail-panel {
     background: #1e293b;
-    border: 1px solid #334155;
+    border: 1px solid #3b82f6;
     border-radius: 12px;
-    padding: 1rem 1.4rem;
+    padding: 1.4rem 1.6rem;
+    margin-top: 0.5rem;
 }
-[data-testid="stMetricLabel"] p { font-size: 0.72rem !important; color: #94a3b8 !important; text-transform: uppercase; letter-spacing: 0.05em; }
-[data-testid="stMetricValue"] { font-size: 2rem !important; font-weight: 800 !important; }
-[data-testid="stMetricDelta"] { font-size: 0.78rem !important; }
+.detail-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.2rem; }
+.detail-meta  { color: #94a3b8; font-size: 0.83rem; margin-bottom: 0.8rem; }
+.score-badge  { font-weight: 700; font-size: 1rem; }
+.kw-box {
+    background: #0f172a; border-radius: 6px;
+    padding: 0.5rem 0.8rem; font-size: 0.78rem;
+    color: #64748b; margin-bottom: 0.8rem;
+}
+.doc-note {
+    background: #064e3b; border-radius: 6px;
+    padding: 0.4rem 0.8rem; font-size: 0.8rem; color: #6ee7b7;
+    display: inline-block; margin-bottom: 0.6rem;
+}
+.section-label {
+    font-size: 0.72rem; font-weight: 600; color: #64748b;
+    text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 0.4rem;
+}
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] { gap: 0; border-bottom: 2px solid #334155; margin-bottom: 1rem; }
-.stTabs [data-baseweb="tab"] { padding: 0.65rem 1.6rem; font-weight: 500; color: #64748b; background: transparent; border: none; }
-.stTabs [aria-selected="true"] { color: #f1f5f9 !important; border-bottom: 2px solid #3b82f6 !important; background: transparent !important; }
-
-/* Dataframe — make rows look clickable */
-[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; border: 1px solid #334155; }
-[data-testid="stDataFrame"] table { font-size: 0.88rem; }
-
-/* Buttons */
 .stButton > button {
-    border-radius: 8px; font-weight: 600; font-size: 0.85rem;
-    padding: 0.4rem 1rem; transition: all 0.15s ease;
+    border-radius: 7px; font-weight: 600; font-size: 0.83rem;
+    padding: 0.35rem 0.9rem;
 }
-.stButton > button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-
-/* Download buttons */
 .stDownloadButton > button {
-    border-radius: 8px; font-weight: 600; font-size: 0.85rem;
-    background: #059669 !important; border-color: #059669 !important; color: white !important;
+    border-radius: 7px; font-weight: 600; font-size: 0.83rem;
+    background: #059669 !important; border-color: #059669 !important;
+    color: white !important;
 }
 
-/* Dialog */
-[data-testid="stDialog"] > div { border-radius: 14px !important; border: 1px solid #334155; }
-
-/* Sidebar */
 [data-testid="stSidebar"] { background: #0f172a; border-right: 1px solid #1e293b; }
-[data-testid="stSidebar"] h2 { font-size: 0.85rem !important; color: #64748b !important;
-    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600 !important; }
-[data-testid="stSidebar"] label { font-size: 0.8rem !important; color: #94a3b8 !important; }
-
-/* Info/tip boxes */
-.tip-box {
-    background: #1e293b; border-left: 3px solid #3b82f6;
-    border-radius: 0 8px 8px 0; padding: 0.6rem 1rem;
-    font-size: 0.82rem; color: #94a3b8; margin-bottom: 1rem;
-}
-
-/* Status pill in detail view */
-.status-pill {
-    display: inline-block; padding: 0.2rem 0.8rem;
-    border-radius: 999px; font-size: 0.78rem; font-weight: 600;
-}
+[data-testid="stSidebar"] .stMarkdown p { font-size: 0.8rem; color: #94a3b8; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,14 +144,14 @@ def fetch_jobs() -> list:
         for page in data.get("results", []):
             p = page.get("properties", {})
             status = (p.get("Status", {}).get("select") or {}).get("name", "New")
-            score  = p.get("Score", {}).get("number") or 0
+            score  = int(p.get("Score", {}).get("number") or 0)
             jobs.append({
                 "id":         page["id"],
                 "title":      _text(p.get("Title", {})),
                 "company":    _text(p.get("Company", {})),
                 "location":   _text(p.get("Location", {})),
                 "url":        p.get("URL", {}).get("url", ""),
-                "score":      int(score),
+                "score":      score,
                 "source":     (p.get("Source", {}).get("select") or {}).get("name", ""),
                 "match_flag": (p.get("MatchFlag", {}).get("select") or {}).get("name", ""),
                 "keywords":   _text(p.get("KeywordsMatched", {})),
@@ -157,11 +159,12 @@ def fetch_jobs() -> list:
                 "status":     status,
                 "status_log": _text(p.get("StatusLog", {})),
                 "docs_done":  p.get("DocsGenerated", {}).get("checkbox", False),
+                "favorite":   p.get("Favorite", {}).get("checkbox", False),
             })
         if not data.get("has_more"):
             break
         cursor = data.get("next_cursor")
-    return sorted(jobs, key=lambda j: j["score"], reverse=True)
+    return sorted(jobs, key=lambda j: (j["favorite"], j["score"]), reverse=True)
 
 
 def _patch(page_id: str, props: dict) -> None:
@@ -169,33 +172,34 @@ def _patch(page_id: str, props: dict) -> None:
                 headers=HEADERS, json={"properties": props}, timeout=30)
 
 
+def _log_status(job: dict, label: str) -> str:
+    date = datetime.now().strftime("%-d %b %Y")
+    old  = job.get("status_log", "")
+    return (f"{old}\n{date} — {label}".strip())[:2000]
+
+
 def update_status(job: dict, new_status: str) -> None:
-    date_str = datetime.now().strftime("%-d %b %Y")
-    old_log  = job.get("status_log", "")
-    new_log  = (f"{old_log}\n{date_str} — {new_status}".strip())[:2000]
     _patch(job["id"], {
         "Status":    {"select": {"name": new_status}},
-        "StatusLog": {"rich_text": [{"text": {"content": new_log}}]},
+        "StatusLog": {"rich_text": [{"text": {"content": _log_status(job, new_status)}}]},
     })
 
 
+def toggle_favorite(job: dict) -> None:
+    _patch(job["id"], {"Favorite": {"checkbox": not job["favorite"]}})
+
+
 def ignore_job(job: dict) -> None:
-    date_str = datetime.now().strftime("%-d %b %Y")
-    old_log  = job.get("status_log", "")
-    new_log  = (f"{old_log}\n{date_str} — Ignored".strip())[:2000]
     _patch(job["id"], {
         "Status":    {"select": {"name": "Ignored"}},
-        "StatusLog": {"rich_text": [{"text": {"content": new_log}}]},
+        "StatusLog": {"rich_text": [{"text": {"content": _log_status(job, "Ignored")}}]},
     })
 
 
 def unignore_job(job: dict) -> None:
-    date_str = datetime.now().strftime("%-d %b %Y")
-    old_log  = job.get("status_log", "")
-    new_log  = (f"{old_log}\n{date_str} — Unignored".strip())[:2000]
     _patch(job["id"], {
         "Status":    {"select": {"name": "New"}},
-        "StatusLog": {"rich_text": [{"text": {"content": new_log}}]},
+        "StatusLog": {"rich_text": [{"text": {"content": _log_status(job, "Unignored")}}]},
     })
 
 
@@ -203,181 +207,175 @@ def mark_docs(page_id: str) -> None:
     _patch(page_id, {"DocsGenerated": {"checkbox": True}})
 
 
-# ── Document generation ───────────────────────────────────────────────────────
+# ── Document helpers ──────────────────────────────────────────────────────────
 def _slug(job: dict) -> str:
     co = re.sub(r'[^\w]', '_', job.get("company", ""))[:20]
-    ti = re.sub(r'[^\w]', '_', job.get("title", ""))[:30]
+    ti = re.sub(r'[^\w]', '_', job.get("title",   ""))[:28]
     return f"{datetime.now().strftime('%Y%m%d')}_{co}_{ti}"
 
 
-# ── Detail dialog ─────────────────────────────────────────────────────────────
-@st.dialog("Role Details", width="large")
-def job_detail(job: dict) -> None:
-    is_ignored = job["status"] == "Ignored"
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PDF_MIME  = "application/pdf"
+
+
+# ── Build display dataframe ───────────────────────────────────────────────────
+def to_df(jobs: list) -> pd.DataFrame:
+    rows = []
+    for j in jobs:
+        s = j["score"]
+        rows.append({
+            "⭐":      "⭐" if j["favorite"] else "☆",
+            "Score":   ("🟢 " if s >= 7 else "🟡 " if s >= 5 else "🔴 ") + str(s),
+            "🏆":      "🏆" if j.get("match_flag") == "HIGH MATCH" else "",
+            "Role":    j["title"],
+            "Company": j["company"],
+            "Posted":  j["date_posted"],
+            "Status":  STATUS_BADGE.get(j["status"], j["status"]),
+        })
+    return pd.DataFrame(rows)
+
+
+# ── Inline detail panel ───────────────────────────────────────────────────────
+def detail_panel(job: dict, is_ignored: bool = False) -> None:
     flag = " 🏆" if job.get("match_flag") == "HIGH MATCH" else ""
+    s    = job["score"]
+    score_color = "#10b981" if s >= 7 else "#f59e0b" if s >= 5 else "#ef4444"
+    fav_icon    = "⭐" if job["favorite"] else "☆"
 
-    # Header
-    st.markdown(f"### {job['title']}{flag}")
-    st.markdown(
-        f"**{job['company']}** &nbsp;·&nbsp; {job['location']} &nbsp;·&nbsp; "
-        f"via {job['source']} &nbsp;·&nbsp; posted {job['date_posted']}"
-    )
+    st.markdown(f"""
+    <div class="detail-panel">
+        <div class="detail-title">{job['title']}{flag}</div>
+        <div class="detail-meta">
+            {job['company']} &nbsp;·&nbsp; {job['location']} &nbsp;·&nbsp; Posted {job['date_posted']}
+        </div>
+        <span class="score-badge" style="color:{score_color};">▲ Match score: {s}/10</span>
+    </div>
+    """, unsafe_allow_html=True)
 
-    score = job["score"]
-    score_color = "#10b981" if score >= 7 else "#f59e0b" if score >= 5 else "#ef4444"
-    st.markdown(
-        f'<span style="color:{score_color}; font-size:1.1rem; font-weight:700;">▲ Match score: {score}/10</span>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style='height:0.6rem'/>", unsafe_allow_html=True)
 
-    if job.get("url"):
-        st.link_button("🔗 View on job board", job["url"])
+    # Action row
+    col_link, col_fav, col_ign = st.columns([2, 1, 1])
+    with col_link:
+        if job.get("url"):
+            st.link_button("🔗 View original posting", job["url"], use_container_width=True)
+    with col_fav:
+        fav_label = "⭐ Unfavourite" if job["favorite"] else "☆ Favourite"
+        if st.button(fav_label, key=f"fav_{job['id']}", use_container_width=True):
+            toggle_favorite(job)
+            st.cache_data.clear()
+            st.rerun()
+    with col_ign:
+        if not is_ignored:
+            if st.button("🚫 Ignore", key=f"ign_{job['id']}", use_container_width=True):
+                ignore_job(job)
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            if st.button("↩️ Unignore", key=f"unign_{job['id']}", use_container_width=True):
+                unignore_job(job)
+                st.cache_data.clear()
+                st.rerun()
 
+    # Keywords (collapsed)
     if job.get("keywords"):
-        with st.expander("Keywords matched"):
+        with st.expander("Keywords matched by AI"):
             st.caption(job["keywords"])
 
     st.divider()
 
     if not is_ignored:
+        col_status, col_docs = st.columns([1, 1])
+
         # ── Status ──────────────────────────────────────────────────────────
-        st.markdown("**Application Status**")
-        col_sel, col_btn = st.columns([3, 1])
-        with col_sel:
-            cur_idx = STATUS_OPTIONS.index(job["status"]) if job["status"] in STATUS_OPTIONS else 0
-            new_status = st.selectbox("Status", STATUS_OPTIONS,
-                                      index=cur_idx, label_visibility="collapsed",
-                                      key=f"sel_{job['id']}")
-        with col_btn:
-            st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
-            if st.button("Save", key=f"save_{job['id']}", use_container_width=True):
-                update_status(job, new_status)
+        with col_status:
+            st.markdown('<div class="section-label">Application status</div>', unsafe_allow_html=True)
+            cur = STATUS_OPTIONS.index(job["status"]) if job["status"] in STATUS_OPTIONS else 0
+            new_s = st.selectbox("Status", STATUS_OPTIONS, index=cur,
+                                 label_visibility="collapsed", key=f"sel_{job['id']}")
+            if st.button("Save status", key=f"save_{job['id']}", use_container_width=True):
+                update_status(job, new_s)
                 st.cache_data.clear()
                 st.rerun()
 
-        if job.get("status_log"):
-            with st.expander("Status history"):
-                for line in reversed(job["status_log"].strip().split("\n")):
-                    if line.strip():
-                        st.caption(f"• {line.strip()}")
+            if job.get("status_log"):
+                with st.expander("History"):
+                    for line in reversed(job["status_log"].strip().split("\n")):
+                        if line.strip():
+                            st.caption(f"• {line.strip()}")
 
-        st.divider()
+        # ── Documents ───────────────────────────────────────────────────────
+        with col_docs:
+            st.markdown('<div class="section-label">Generate documents</div>', unsafe_allow_html=True)
 
-        # ── Document generation ──────────────────────────────────────────────
-        st.markdown("**Generate Documents**")
-        st.markdown(
-            '<div class="tip-box">Documents are tailored by AI to this specific role. '
-            'Download as Word — edit if needed before sending.</div>',
-            unsafe_allow_html=True,
-        )
+            if job.get("docs_done"):
+                st.markdown('<div class="doc-note">✅ Documents previously generated</div>',
+                            unsafe_allow_html=True)
 
-        col_cl, col_cv = st.columns(2)
+            slug = _slug(job)
 
-        with col_cl:
+            # Cover letter
             if st.button("📝 Generate Cover Letter", key=f"cl_{job['id']}",
                          use_container_width=True):
                 with st.spinner("Writing cover letter..."):
                     try:
                         from cover_letter import generate
-                        from document_builder import build_cover_letter_docx
-                        cl_text = generate(job)
-                        cl_docx = build_cover_letter_docx(cl_text)
-                        st.session_state[f"cl_{job['id']}"] = (cl_text, cl_docx)
+                        from document_builder import build_cover_letter_docx, build_cover_letter_pdf
+                        text = generate(job)
+                        st.session_state[f"cl_{job['id']}"] = {
+                            "text": text,
+                            "docx": build_cover_letter_docx(text),
+                            "pdf":  build_cover_letter_pdf(text),
+                        }
                         mark_docs(job["id"])
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        with col_cv:
+            if f"cl_{job['id']}" in st.session_state:
+                cl = st.session_state[f"cl_{job['id']}"]
+                with st.expander("Preview cover letter"):
+                    st.text(cl["text"])
+                c1, c2 = st.columns(2)
+                c1.download_button("⬇️ Word", data=cl["docx"],
+                    file_name=f"{slug}_cover_letter.docx", mime=DOCX_MIME,
+                    key=f"dlcl_w_{job['id']}", use_container_width=True)
+                c2.download_button("⬇️ PDF", data=cl["pdf"],
+                    file_name=f"{slug}_cover_letter.pdf", mime=PDF_MIME,
+                    key=f"dlcl_p_{job['id']}", use_container_width=True)
+
+            st.markdown("<div style='height:0.4rem'/>", unsafe_allow_html=True)
+
+            # Resume
             if st.button("📄 Generate Resume", key=f"cv_{job['id']}",
                          use_container_width=True):
                 with st.spinner("Tailoring resume..."):
                     try:
-                        from document_builder import build_resume_docx
-                        cv_docx = build_resume_docx(job)
-                        st.session_state[f"cv_{job['id']}"] = cv_docx
+                        from document_builder import build_resume_docx, build_resume_pdf
+                        st.session_state[f"cv_{job['id']}"] = {
+                            "docx": build_resume_docx(job),
+                            "pdf":  build_resume_pdf(job),
+                        }
                         mark_docs(job["id"])
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        slug = _slug(job)
-
-        # Cover letter downloads
-        if f"cl_{job['id']}" in st.session_state:
-            cl_text, cl_docx = st.session_state[f"cl_{job['id']}"]
-            st.markdown("**Cover Letter Preview**")
-            st.text_area("", cl_text, height=220, label_visibility="collapsed",
-                         key=f"clprev_{job['id']}")
-            st.download_button(
-                "⬇️ Download Cover Letter (.docx)",
-                data=cl_docx,
-                file_name=f"{slug}_cover_letter.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"dlcl_{job['id']}", use_container_width=True,
-            )
-
-        # Resume download
-        if f"cv_{job['id']}" in st.session_state:
-            st.download_button(
-                "⬇️ Download Resume (.docx)",
-                data=st.session_state[f"cv_{job['id']}"],
-                file_name=f"{slug}_resume.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"dlcv_{job['id']}", use_container_width=True,
-            )
-
-        st.divider()
-
-        # ── Ignore ───────────────────────────────────────────────────────────
-        if st.button("🚫 Ignore this opportunity", key=f"ign_{job['id']}",
-                     use_container_width=True):
-            ignore_job(job)
-            st.cache_data.clear()
-            st.rerun()
-
-    else:
-        # Archived view
-        st.info("This opportunity has been ignored.")
-        if job.get("status_log"):
-            with st.expander("History"):
-                for line in reversed(job["status_log"].strip().split("\n")):
-                    if line.strip():
-                        st.caption(f"• {line.strip()}")
-        if st.button("↩️ Unignore — move back to active", key=f"unign_{job['id']}",
-                     use_container_width=True):
-            unignore_job(job)
-            st.cache_data.clear()
-            st.rerun()
+            if f"cv_{job['id']}" in st.session_state:
+                cv = st.session_state[f"cv_{job['id']}"]
+                c3, c4 = st.columns(2)
+                c3.download_button("⬇️ Word", data=cv["docx"],
+                    file_name=f"{slug}_resume.docx", mime=DOCX_MIME,
+                    key=f"dlcv_w_{job['id']}", use_container_width=True)
+                c4.download_button("⬇️ PDF", data=cv["pdf"],
+                    file_name=f"{slug}_resume.pdf", mime=PDF_MIME,
+                    key=f"dlcv_p_{job['id']}", use_container_width=True)
 
 
-# ── Build table dataframe ─────────────────────────────────────────────────────
-def to_df(jobs: list) -> pd.DataFrame:
-    rows = []
-    for j in jobs:
-        score = j["score"]
-        score_str = ("🟢 " if score >= 7 else "🟡 " if score >= 5 else "🔴 ") + str(score)
-        flag  = "🏆" if j.get("match_flag") == "HIGH MATCH" else ""
-        rows.append({
-            "Score":   score_str,
-            "":        flag,
-            "Role":    j["title"],
-            "Company": j["company"],
-            "Source":  j["source"],
-            "Posted":  j["date_posted"],
-            "Status":  STATUS_EMOJI.get(j["status"], j["status"]),
-            "Docs":    "✅" if j["docs_done"] else "",
-            "_score":  score,   # hidden sort key
-        })
-    return pd.DataFrame(rows)
-
-
-# ── Main app ──────────────────────────────────────────────────────────────────
-# Header
+# ── Main ──────────────────────────────────────────────────────────────────────
 st.markdown("# 💼 Yang's Job Board")
-st.markdown('<p class="subtitle">AI-qualified banking opportunities · refreshed every 24 hours</p>',
-            unsafe_allow_html=True)
+st.markdown('<p class="sub">AI-qualified banking opportunities · refreshed every 24 hours · '
+            'click any row to expand</p>', unsafe_allow_html=True)
 
-# Load jobs
-with st.spinner("Loading opportunities..."):
+with st.spinner("Loading..."):
     try:
         all_jobs = fetch_jobs()
     except Exception as e:
@@ -387,115 +385,90 @@ with st.spinner("Loading opportunities..."):
 active  = [j for j in all_jobs if j["status"] != "Ignored"]
 ignored = [j for j in all_jobs if j["status"] == "Ignored"]
 
-# ── Sidebar filters ───────────────────────────────────────────────────────────
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## Filters")
-    sources = sorted({j["source"] for j in active if j["source"]})
-    sel_sources = st.multiselect("Source", sources, default=sources, label_visibility="visible")
 
-    statuses = STATUS_OPTIONS
-    sel_statuses = st.multiselect("Status", statuses, default=statuses)
+    show_favs = st.toggle("⭐ Favourites only", value=False)
 
-    score_min, score_max = st.slider("Min score", 0, 10, (3, 10))
+    sel_statuses = st.multiselect(
+        "Application status", STATUS_OPTIONS, default=STATUS_OPTIONS,
+    )
+
+    score_range = st.slider("Score range", 0, 10, (3, 10))
 
     st.divider()
-    if st.button("🔄 Refresh jobs", use_container_width=True):
+    if st.button("🔄 Refresh", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
-    st.markdown("## About")
-    st.caption("Jobs are scraped from SEEK and Adzuna every 24 hours and scored by AI against your profile. "
-               "Click any row in the table to view details, generate documents, or update your application status.")
+    st.divider()
+    st.markdown("**How to use**")
+    st.markdown(
+        "Click any row to expand it. "
+        "From there you can update your application status, "
+        "generate a tailored cover letter or resume (Word or PDF), "
+        "favourite a role, or ignore it."
+    )
 
 # Apply filters
 filtered = [
     j for j in active
-    if j["source"] in sel_sources
-    and j["status"] in sel_statuses
-    and score_min <= j["score"] <= score_max
+    if j["status"] in sel_statuses
+    and score_range[0] <= j["score"] <= score_range[1]
+    and (not show_favs or j["favorite"])
 ]
 
-# ── Summary metrics ───────────────────────────────────────────────────────────
-high_match = sum(1 for j in filtered if j.get("match_flag") == "HIGH MATCH")
-applied    = sum(1 for j in active  if j["status"] == "Applied")
-interviews = sum(1 for j in active  if j["status"] == "Interview")
-
+# ── Metrics ───────────────────────────────────────────────────────────────────
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Active roles",   len(active))
-m2.metric("Showing",        len(filtered))
-m3.metric("🏆 High match",  high_match)
-m4.metric("📨 Applied",     applied)
-m5.metric("🗣 Interviews",  interviews)
+m1.metric("Active roles",  len(active))
+m2.metric("Showing",       len(filtered))
+m3.metric("🏆 High match", sum(1 for j in filtered if j.get("match_flag") == "HIGH MATCH"))
+m4.metric("📨 Applied",    sum(1 for j in active  if j["status"] == "Applied"))
+m5.metric("🗣 Interviews", sum(1 for j in active  if j["status"] == "Interview"))
 
 st.markdown("<div style='margin-top:1rem'/>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_active, tab_ignored = st.tabs([
-    f"Active opportunities  ({len(filtered)})",
+    f"Active  ({len(filtered)})",
     f"Ignored  ({len(ignored)})",
 ])
 
+
+def render_table(jobs: list, tab_key: str, is_ignored: bool = False) -> None:
+    if not jobs:
+        st.info("Nothing here yet.")
+        return
+
+    df = to_df(jobs)
+
+    event = st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        column_config={
+            "⭐":      st.column_config.TextColumn("⭐",      width=40),
+            "Score":   st.column_config.TextColumn("Score",   width=80),
+            "🏆":      st.column_config.TextColumn("🏆",      width=40),
+            "Role":    st.column_config.TextColumn("Role",    width="large"),
+            "Company": st.column_config.TextColumn("Company", width="medium"),
+            "Posted":  st.column_config.TextColumn("Posted",  width=100),
+            "Status":  st.column_config.TextColumn("Status",  width=120),
+        },
+        key=f"tbl_{tab_key}",
+        height=min(80 + len(jobs) * 35, 550),
+    )
+
+    sel = event.selection.rows
+    if sel:
+        detail_panel(jobs[sel[0]], is_ignored=is_ignored)
+
+
 with tab_active:
-    if not filtered:
-        st.info("No opportunities match your current filters.")
-    else:
-        st.markdown(
-            '<div class="tip-box">👆 Click any row to open details, update status, '
-            'or generate a tailored cover letter and resume.</div>',
-            unsafe_allow_html=True,
-        )
-
-        df = to_df(filtered)
-        display_cols = ["Score", "", "Role", "Company", "Source", "Posted", "Status", "Docs"]
-
-        event = st.dataframe(
-            df[display_cols],
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            column_config={
-                "Score":   st.column_config.TextColumn("Score", width="small"),
-                "":        st.column_config.TextColumn("",      width="small"),
-                "Role":    st.column_config.TextColumn("Role",    width="large"),
-                "Company": st.column_config.TextColumn("Company", width="medium"),
-                "Source":  st.column_config.TextColumn("Source",  width="small"),
-                "Posted":  st.column_config.TextColumn("Posted",  width="small"),
-                "Status":  st.column_config.TextColumn("Status",  width="medium"),
-                "Docs":    st.column_config.TextColumn("Docs",    width="small"),
-            },
-            height=min(80 + len(filtered) * 35, 600),
-        )
-
-        sel = event.selection.rows
-        if sel:
-            job_detail(filtered[sel[0]])
+    render_table(filtered, "active")
 
 with tab_ignored:
-    if not ignored:
-        st.info("Nothing ignored yet. Use the Ignore button in a role's detail view to hide it.")
-    else:
-        df_ign = to_df(ignored)
-        display_cols = ["Score", "", "Role", "Company", "Source", "Posted", "Docs"]
-
-        event_ign = st.dataframe(
-            df_ign[display_cols],
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            column_config={
-                "Score":   st.column_config.TextColumn("Score",   width="small"),
-                "":        st.column_config.TextColumn("",        width="small"),
-                "Role":    st.column_config.TextColumn("Role",    width="large"),
-                "Company": st.column_config.TextColumn("Company", width="medium"),
-                "Source":  st.column_config.TextColumn("Source",  width="small"),
-                "Posted":  st.column_config.TextColumn("Posted",  width="small"),
-                "Docs":    st.column_config.TextColumn("Docs",    width="small"),
-            },
-            height=min(80 + len(ignored) * 35, 400),
-        )
-
-        sel_ign = event_ign.selection.rows
-        if sel_ign:
-            job_detail(ignored[sel_ign[0]])
+    render_table(ignored, "ignored", is_ignored=True)
