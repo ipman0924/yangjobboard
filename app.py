@@ -229,7 +229,6 @@ def to_df(jobs: list) -> pd.DataFrame:
         rows.append({
             "⭐":      "⭐" if j["favorite"] else "☆",
             "Score":   ("🟢 " if s >= 7 else "🟡 " if s >= 5 else "🔴 ") + str(s),
-            "🏆":      "🏆" if j.get("match_flag") == "HIGH MATCH" else "",
             "Role":    j["title"],
             "Company": j["company"],
             "Posted":  j["date_posted"],
@@ -408,7 +407,6 @@ def render_table(jobs: list, tab_key: str, is_ignored: bool = False) -> None:
                 # No explicit widths → Streamlit auto-sizes every column
                 "⭐":      st.column_config.TextColumn("⭐"),
                 "Score":   st.column_config.TextColumn("Score"),
-                "🏆":      st.column_config.TextColumn("🏆"),
                 "Role":    st.column_config.TextColumn("Role"),
                 "Company": st.column_config.TextColumn("Company"),
                 "Posted":  st.column_config.TextColumn("Posted"),
