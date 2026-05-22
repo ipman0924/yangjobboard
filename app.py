@@ -312,14 +312,14 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
         slug = _slug(job)
 
         # Cover letter
-        if st.button("📝 Generate Cover Letter", key=f"cl_{job['id']}",
+        if st.button("📝 Generate Cover Letter", key=f"btn_cl_{job['id']}",
                      use_container_width=True):
             with st.spinner("Writing cover letter..."):
                 try:
                     from cover_letter import generate
                     from document_builder import build_cover_letter_docx, build_cover_letter_pdf
                     text = generate(job)
-                    st.session_state[f"cl_{job['id']}"] = {
+                    st.session_state[f"cl_data_{job['id']}"] = {
                         "text": text,
                         "docx": build_cover_letter_docx(text),
                         "pdf":  build_cover_letter_pdf(text),
@@ -328,8 +328,8 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-        if f"cl_{job['id']}" in st.session_state:
-            cl = st.session_state[f"cl_{job['id']}"]
+        if f"cl_data_{job['id']}" in st.session_state:
+            cl = st.session_state[f"cl_data_{job['id']}"]
             with st.expander("Preview cover letter"):
                 st.text(cl["text"])
             c1, c2 = st.columns(2)
@@ -343,12 +343,12 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
         st.markdown("<div style='height:0.4rem'/>", unsafe_allow_html=True)
 
         # Resume
-        if st.button("📄 Generate Resume", key=f"cv_{job['id']}",
+        if st.button("📄 Generate Resume", key=f"btn_cv_{job['id']}",
                      use_container_width=True):
             with st.spinner("Tailoring resume..."):
                 try:
                     from document_builder import build_resume_docx, build_resume_pdf
-                    st.session_state[f"cv_{job['id']}"] = {
+                    st.session_state[f"cv_data_{job['id']}"] = {
                         "docx": build_resume_docx(job),
                         "pdf":  build_resume_pdf(job),
                     }
@@ -356,8 +356,8 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-        if f"cv_{job['id']}" in st.session_state:
-            cv = st.session_state[f"cv_{job['id']}"]
+        if f"cv_data_{job['id']}" in st.session_state:
+            cv = st.session_state[f"cv_data_{job['id']}"]
             c3, c4 = st.columns(2)
             c3.download_button("⬇️ Word", data=cv["docx"],
                 file_name=f"{slug}_resume.docx", mime=DOCX_MIME,
