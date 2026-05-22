@@ -196,7 +196,7 @@ JUNIOR_SIGNALS = [
 # Scheduling
 # ---------------------------------------------------------------------------
 
-RUN_INTERVAL_HOURS = 6
+RUN_INTERVAL_HOURS = 24
 
 # ---------------------------------------------------------------------------
 # Resume template paths  (relative to project root)

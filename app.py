@@ -664,6 +664,21 @@ with st.sidebar:
             st.cache_data.clear()
             st.rerun()
 
+        # Manual scrape trigger
+        if st.button("▶️ Run Now", use_container_width=True,
+                     help="Scrape all sources immediately, even on weekends"):
+            import subprocess, sys as _sys
+            try:
+                subprocess.Popen(
+                    [_sys.executable,
+                     str(Path(__file__).parent / "job_monitor.py"),
+                     "--force"],
+                    cwd=str(Path(__file__).parent),
+                )
+                st.success("Scan started — refresh in ~5 minutes to see new jobs.")
+            except Exception as e:
+                st.error(f"Could not start job monitor: {e}")
+
         st.divider()
         st.markdown("**How to use**")
         st.markdown(

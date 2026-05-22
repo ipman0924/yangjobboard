@@ -10,7 +10,9 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
+import pytz
 from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -39,7 +41,25 @@ logging.basicConfig(
 logger = logging.getLogger("job_monitor")
 
 
-def run_once() -> None:
+_SYDNEY = pytz.timezone("Australia/Sydney")
+
+
+def _is_weekend() -> bool:
+    """Return True if it's Saturday or Sunday in Sydney time."""
+    return datetime.now(_SYDNEY).weekday() >= 5  # 5=Sat, 6=Sun
+
+
+def run_once(force: bool = False) -> None:
+    """Run one full scrape-score-write cycle.
+
+    Args:
+        force: if True, skip the weekend check (used by the manual Run Now button).
+    """
+    if not force and _is_weekend():
+        day = datetime.now(_SYDNEY).strftime("%A")
+        logger.info(f"Skipping scheduled run — today is {day} (weekend). Use --force to override.")
+        return
+
     database_id = os.environ["NOTION_DATABASE_ID"]
     logger.info("=" * 60)
     logger.info("Job Monitor run started")
@@ -115,10 +135,15 @@ def main() -> None:
         action="store_true",
         help="Run a single scrape cycle and exit (no scheduler)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Run immediately even on weekends (skips the weekend check)",
+    )
     args = parser.parse_args()
 
-    if args.once:
-        run_once()
+    if args.once or args.force:
+        run_once(force=args.force)
         return
 
     # Run immediately on startup, then on schedule
