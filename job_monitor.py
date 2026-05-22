@@ -27,7 +27,6 @@ if _missing:
 
 from config import RUN_INTERVAL_HOURS
 from scrapers import indeed, seek, apsjobs, adzuna
-from scorer import score_job
 from llm_scorer import llm_score_jobs
 from resume_optimizer import optimise_jobs
 from notion_writer import write_new_jobs
@@ -63,11 +62,8 @@ def run_once() -> None:
 
     logger.info(f"Total raw jobs: {len(all_jobs)}")
 
-    # --- 2. Score (keyword pass) ---
-    scored_jobs = [score_job(j) for j in all_jobs]
-
-    # --- 3. Score (LLM semantic pass) ---
-    scored_jobs = llm_score_jobs(scored_jobs)
+    # --- 2. Score (Haiku semantic pass — all jobs, no keyword pre-filter) ---
+    scored_jobs = llm_score_jobs(all_jobs)
 
     writable = [j for j in scored_jobs if j.get("should_write")]
     optimisable = [j for j in scored_jobs if j.get("should_optimise")]
@@ -77,15 +73,15 @@ def run_once() -> None:
         f"{len(optimisable)} above optimise threshold"
     )
 
-    # --- 4. Optimise resumes (only for high-score jobs) ---
+    # --- 3. Optimise resumes (only for high-score jobs) ---
     if optimisable:
         logger.info(f"Running resume optimisation for {len(optimisable)} jobs...")
         optimise_jobs(optimisable)
 
-    # --- 5. Write to Notion ---
+    # --- 4. Write to Notion ---
     written = write_new_jobs(writable, database_id)
 
-    # --- 6. Summary ---
+    # --- 5. Summary ---
     logger.info("=" * 60)
     print("\n--- JOB MONITOR SUMMARY ---")
     for src, count in source_counts.items():

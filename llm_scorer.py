@@ -1,13 +1,16 @@
 """
-LLM-based semantic scorer using Claude Haiku.
+LLM-based job scorer using Claude Haiku.
 
-Runs AFTER the keyword scorer as a second pass. For any job that isn't
-clearly irrelevant (keyword score >= LLM_PREFILTER_THRESHOLD), Haiku
-evaluates fit against Yang's background and returns a semantic score 0-10.
+Every scraped job goes through Haiku — no keyword pre-filter.
+Haiku reads the full candidate profile and up to 4000 chars of the JD,
+then returns a score (0-10) and a short reason.
 
-The semantic score is multiplied into the final score so the pipeline
-thresholds remain unchanged. Jobs with very low semantic scores get
-penalised; high semantic scores add a bonus.
+That score becomes the job's score directly. The existing thresholds
+in config.py (3 / 5 / 7) map cleanly onto the 0-10 scale:
+  < 3  → not written to Notion
+  3-4  → written, not optimised (weak match — visible but low priority)
+  5-6  → written + resume tailored (moderate match)
+  7+   → written + resume tailored + HIGH MATCH flag
 """
 
 import json
@@ -16,22 +19,17 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import anthropic
-from config import CLAUDE_MODEL
+from config import CLAUDE_MODEL, HIGH_MATCH_THRESHOLD, NOTION_WRITE_THRESHOLD, RESUME_OPTIMISE_THRESHOLD
 
 logger = logging.getLogger(__name__)
-
-# Jobs with keyword score below this are skipped entirely (clear rejects)
-LLM_PREFILTER_THRESHOLD = -3
-
-# Semantic score >= this adds a bonus; below penalises
-LLM_BONUS_THRESHOLD = 6  # out of 10
-LLM_BONUS_POINTS   = 2   # added to keyword score when semantic is strong
-LLM_PENALTY_POINTS = -3  # added when semantically irrelevant
 
 _client: Optional[anthropic.Anthropic] = None
 _candidate_profile: Optional[str] = None
 
 CANDIDATE_PROFILE_PATH = Path(__file__).parent / "data" / "candidate_profile.txt"
+
+# How much of the job description to send — more context = better scoring accuracy
+JD_CHAR_LIMIT = 4000
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -46,77 +44,80 @@ def _get_candidate_profile() -> str:
     if _candidate_profile is None:
         if CANDIDATE_PROFILE_PATH.exists():
             _candidate_profile = CANDIDATE_PROFILE_PATH.read_text(encoding="utf-8")
-            logger.info("LLM scorer: loaded candidate profile from file")
+            logger.info("LLM scorer: loaded candidate profile")
         else:
-            # Fallback if file is missing
             _candidate_profile = (
                 "Yang Yang — 8 years in Australian banking. "
                 "Core expertise: post-approval/hindsight review, credit assurance, lending quality, "
                 "risk & controls (Line 1/2), residential lending, operational risk, APRA compliance. "
-                "Open to: risk & controls, lending operations, credit assessment, personal/retail banking roles. "
+                "Open to: risk & controls, lending operations, credit assessment, personal/retail banking. "
                 "Not suitable for: data science, cyber/IT risk, investment banking, external audit, derivatives."
             )
-            logger.warning("LLM scorer: candidate_profile.txt not found, using fallback summary")
+            logger.warning("LLM scorer: candidate_profile.txt not found, using fallback")
     return _candidate_profile
 
 
 _SCORE_PROMPT = """\
-You are a recruiter matching candidates to banking roles in Australia.
+You are a specialist banking recruiter in Australia assessing job fit for a candidate.
 
-Use the candidate profile below to assess how well this job fits.
-Pay attention to the "Suitable Job Types" section — it lists best match, also suitable, possible, and less suitable categories.
+Read the candidate profile carefully — pay close attention to the "What Roles Suit Her"
+section which lists best match, also suitable, possible, and not suitable role types.
 
 Candidate Profile:
 {background}
 
-Job to evaluate:
+Job to assess:
 Title: {title}
 Company: {company}
-Description: {description}
+Description:
+{description}
 
-Rate how relevant this job is for this candidate on a scale of 0–10:
-- 9-10: Exact match (best match role type, right seniority, banking/financial services)
-- 7-8: Strong match (also suitable role type, right industry, skills clearly transfer)
-- 5-6: Moderate match (possible but not strongest fit, or right role type but wrong industry/seniority)
-- 3-4: Weak match (banking adjacent but wrong function or too far from her background)
-- 0-2: Irrelevant (less suitable category, wrong domain, excluded role type)
+Score how well this job fits this candidate (0–10):
 
-Respond ONLY with JSON: {{"score": <integer 0-10>, "reason": "<10 words max>"}}"""
+10 — Perfect. Title and requirements are an exact match for her best-fit role types.
+     Her experience directly covers the core duties. Right seniority. Banking/finance.
+8-9 — Strong. Also-suitable role type, or best-fit role with minor gaps. Skills transfer clearly.
+6-7 — Moderate. Possible fit — right industry but adjacent function, or right function but different industry.
+4-5 — Weak. Banking-adjacent but significant skill or domain mismatch.
+2-3 — Poor. Some overlap but wrong domain, wrong seniority, or wrong industry.
+0-1 — Irrelevant. Not suitable category, excluded role type, or clearly wrong field.
+
+IMPORTANT — automatically score 0-2 for:
+- Technology / cyber / AI / IT risk roles (she has no tech risk background)
+- Data science, machine learning, quantitative, software engineering roles
+- Investment banking, markets, trading, derivatives
+- External or internal audit
+- Insurance, superannuation, wealth management, financial planning
+- Graduate / entry-level / cadet programs
+- Roles outside banking and financial services
+
+Respond ONLY with JSON:
+{{"score": <integer 0-10>, "reason": "<20 words max — specific, name the role type and key factor>"}}"""
 
 
 def llm_score_jobs(jobs: List[dict]) -> List[dict]:
     """
-    Augments each job dict with:
-        llm_score      - int 0-10 (or None if skipped)
-        llm_reason     - short rationale string
-    Also adjusts job["score"] by LLM_BONUS/PENALTY_POINTS.
-
-    Modifies jobs in-place and returns the list.
+    Score every job via Haiku. Sets job["score"] directly from Haiku's 0-10 rating.
+    Also sets job["llm_score"], job["llm_reason"], job["keywords_matched"],
+    job["match_flag"], job["should_write"], job["should_optimise"].
     """
-    eligible = [j for j in jobs if j.get("score", 0) >= LLM_PREFILTER_THRESHOLD]
-    skipped  = len(jobs) - len(eligible)
-
-    if not eligible:
-        logger.info("LLM scorer: no eligible jobs (all below prefilter threshold)")
+    if not jobs:
         return jobs
 
-    logger.info(
-        f"LLM scorer: evaluating {len(eligible)} jobs "
-        f"({skipped} skipped as clear rejects)"
-    )
+    logger.info(f"LLM scorer: scoring {len(jobs)} jobs via Haiku")
 
     client  = _get_client()
     profile = _get_candidate_profile()
 
-    for job in eligible:
+    for job in jobs:
         title       = job.get("title", "")
         company     = job.get("company", "")
-        description = (job.get("description") or "")[:1500]  # keep tokens low
+        description = (job.get("description") or "")[:JD_CHAR_LIMIT]
 
         try:
             resp = client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=80,
+                max_tokens=100,
                 messages=[{
                     "role": "user",
                     "content": _SCORE_PROMPT.format(
@@ -130,42 +131,31 @@ def llm_score_jobs(jobs: List[dict]) -> List[dict]:
             raw = resp.content[0].text.strip()
             if "```" in raw:
                 raw = raw.split("```")[1].lstrip("json").strip()
-            result      = json.loads(raw)
-            llm_score   = int(result.get("score", 5))
-            llm_reason  = result.get("reason", "")
-
-            job["llm_score"]  = llm_score
-            job["llm_reason"] = llm_reason
-
-            if llm_score >= LLM_BONUS_THRESHOLD:
-                job["score"] += LLM_BONUS_POINTS
-                logger.debug(
-                    f"[+{LLM_BONUS_POINTS}] {title} @ {company} "
-                    f"— LLM {llm_score}/10: {llm_reason}"
-                )
-            elif llm_score < 4:
-                job["score"] += LLM_PENALTY_POINTS
-                logger.debug(
-                    f"[{LLM_PENALTY_POINTS}] {title} @ {company} "
-                    f"— LLM {llm_score}/10: {llm_reason}"
-                )
-            else:
-                logger.debug(
-                    f"[±0] {title} @ {company} "
-                    f"— LLM {llm_score}/10: {llm_reason}"
-                )
+            result     = json.loads(raw)
+            llm_score  = max(0, min(10, int(result.get("score", 0))))
+            llm_reason = result.get("reason", "")
 
         except Exception as exc:
             logger.warning(f"LLM scorer failed for '{title}': {exc}")
-            job["llm_score"]  = None
-            job["llm_reason"] = ""
+            llm_score  = 0
+            llm_reason = ""
 
-    # Re-evaluate flags after score adjustments
-    from config import HIGH_MATCH_THRESHOLD, NOTION_WRITE_THRESHOLD, RESUME_OPTIMISE_THRESHOLD
-    for job in jobs:
-        score = job.get("score", 0)
-        job["match_flag"]     = "HIGH MATCH" if score >= HIGH_MATCH_THRESHOLD else ""
-        job["should_write"]   = score >= NOTION_WRITE_THRESHOLD
-        job["should_optimise"] = score >= RESUME_OPTIMISE_THRESHOLD
+        # Haiku's score IS the score — no keyword base to add to
+        job["score"]            = llm_score
+        job["llm_score"]        = llm_score
+        job["llm_reason"]       = llm_reason
+        job["keywords_matched"] = []   # keyword pass removed; ai_reason replaces this
+        job["match_flag"]       = "HIGH MATCH" if llm_score >= HIGH_MATCH_THRESHOLD else ""
+        job["should_write"]     = llm_score >= NOTION_WRITE_THRESHOLD
+        job["should_optimise"]  = llm_score >= RESUME_OPTIMISE_THRESHOLD
+
+        logger.debug(
+            f"[{llm_score}/10] {title} @ {company}"
+            + (f" — {llm_reason}" if llm_reason else "")
+        )
+
+    written  = sum(1 for j in jobs if j["should_write"])
+    high     = sum(1 for j in jobs if j["match_flag"] == "HIGH MATCH")
+    logger.info(f"LLM scorer: {written}/{len(jobs)} above write threshold, {high} HIGH MATCH")
 
     return jobs
