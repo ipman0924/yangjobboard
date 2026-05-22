@@ -27,7 +27,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm as rl_cm
 from reportlab.lib.colors import HexColor, black
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
 from config import CLAUDE_MODEL, CONTROL_RISK_SIGNALS
 
 RL_BLUE = HexColor('#2E74B5')
@@ -157,14 +157,45 @@ def _parse_tailored(text: str) -> dict:
         elif current == "summary" and stripped:
             sections["summary"].append(stripped)
         elif current == "skills" and stripped:
-            sections["skills"].append(stripped)
+            # Strip any leading dash/bullet Haiku sometimes adds
+            skill = re.sub(r'^[-•]\s*', '', stripped)
+            if skill:
+                sections["skills"].append(skill)
         elif current == "role" and current_role and stripped:
             # Strip leading dash or bullet
-            bullet = re.sub(r'^[-•]\s*', '', stripped)
-            if bullet:
+            bullet = re.sub(r'^[-•–]\s*', '', stripped)
+            # Skip lines that look like location/date metadata e.g. "Sydney | 2019 – 2023"
+            if bullet and not re.search(r'\|\s*\d{4}', bullet):
                 sections["roles"][current_role].append(bullet)
 
     return sections
+
+
+# ---------------------------------------------------------------------------
+# Role-bullet matching helper
+# ---------------------------------------------------------------------------
+
+def _find_role_bullets(role_name: str, roles_dict: dict) -> list:
+    """Return bullets for role_name from the parsed roles dict.
+
+    Matches on the job-title portion after '–' so that roles sharing the
+    same employer prefix ('Bank of China Australia') don't all resolve to
+    the same entry.  Falls back to a full-name substring match.
+    """
+    def title_part(name: str) -> str:
+        parts = name.split("–")
+        return parts[-1].strip().lower() if len(parts) > 1 else name.lower()
+
+    target = title_part(role_name)
+    # Pass 1: match on title portion
+    for key, items in roles_dict.items():
+        if target[:18] in title_part(key) or title_part(key)[:18] in target:
+            return items
+    # Pass 2: fallback full-name substring
+    for key, items in roles_dict.items():
+        if role_name.lower()[:30] in key.lower():
+            return items
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -261,10 +292,12 @@ def build_resume_docx(job: dict) -> bytes:
 
     # --- Core Skills ---
     _section_heading(doc, "Core Skills", template)
+    prefix = "–" if template == "risk" else "•"
     for skill in content["skills"]:
         p = doc.add_paragraph()
         p.paragraph_format.space_after = Pt(1)
-        run = p.add_run(skill)
+        p.paragraph_format.left_indent = Inches(0.15)
+        run = p.add_run(f"{prefix} {skill}")
         _set_font(run, 11)
 
     if template == "lending":
@@ -293,12 +326,7 @@ def build_resume_docx(job: dict) -> bytes:
         run2 = p2.add_run(role_meta)
         _set_font(run2, 11, color=DARK_GREY)
 
-        # Find matching bullets
-        bullets = []
-        for key, items in content["roles"].items():
-            if role_name.lower()[:20] in key.lower():
-                bullets = items
-                break
+        bullets = _find_role_bullets(role_name, content["roles"])
 
         for bullet_text in bullets:
             p3 = doc.add_paragraph(style='List Bullet' if template == "lending" else 'Normal')
@@ -399,8 +427,24 @@ def build_resume_pdf(job: dict) -> bytes:
         story.append(hr())
 
     story.append(Paragraph("Core Skills", head_s))
-    for skill in content["skills"]:
-        story.append(Paragraph(skill, body_s))
+    # Two-column skill layout — halves vertical space
+    prefix = "–" if template == "risk" else "•"
+    skills = content["skills"]
+    skill_rows = []
+    for i in range(0, len(skills), 2):
+        left  = Paragraph(f"{prefix} {skills[i]}", bullet_s)
+        right = Paragraph(f"{prefix} {skills[i + 1]}", bullet_s) if i + 1 < len(skills) else Paragraph("", bullet_s)
+        skill_rows.append([left, right])
+    if skill_rows:
+        skill_tbl = Table(skill_rows, colWidths=["50%", "50%"])
+        skill_tbl.setStyle(TableStyle([
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("TOPPADDING",    (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        story.append(skill_tbl)
     if template == "lending":
         story.append(hr())
 
@@ -410,17 +454,13 @@ def build_resume_pdf(job: dict) -> bytes:
         ("Bank of China Australia – Assistant Relationship Manager", "Hurstville Branch | 2016 – 2019"),
         ("Bank of China Australia – Teller",                        "Hurstville Branch | 2013 – 2015"),
     ]
+    bullet_prefix = "–" if template == "risk" else "•"
     for role_name, role_meta in roles_order:
         story.append(Paragraph(role_name, role_s))
         story.append(Paragraph(role_meta, meta_s))
-        bullets = []
-        for key, items in content["roles"].items():
-            if role_name.lower()[:20] in key.lower():
-                bullets = items
-                break
-        prefix = "–" if template == "risk" else "•"
+        bullets = _find_role_bullets(role_name, content["roles"])
         for bt in bullets:
-            story.append(Paragraph(f"{prefix} {bt}", bullet_s))
+            story.append(Paragraph(f"{bullet_prefix} {bt}", bullet_s))
         if template == "lending":
             story.append(hr())
 
