@@ -26,7 +26,7 @@ if _missing:
     sys.exit(1)
 
 from config import RUN_INTERVAL_HOURS
-from scrapers import indeed, seek, apsjobs, adzuna
+from scrapers import indeed, seek, apsjobs, adzuna, workday
 from llm_scorer import llm_score_jobs
 from resume_optimizer import optimise_jobs
 from notion_writer import write_new_jobs
@@ -48,8 +48,11 @@ def run_once() -> None:
     all_jobs = []
     source_counts = {}
 
-    SCRAPER_LABELS = {indeed: "SEEK-niche", seek: "SEEK-broad", apsjobs: "APSJobs", adzuna: "Adzuna"}
-    for scraper_module in (seek, indeed, adzuna, apsjobs):
+    SCRAPER_LABELS = {
+        indeed: "SEEK-niche", seek: "SEEK-broad", apsjobs: "APSJobs",
+        adzuna: "Adzuna", workday: "Workday",
+    }
+    for scraper_module in (seek, indeed, adzuna, apsjobs, workday):
         name = SCRAPER_LABELS.get(scraper_module, scraper_module.__name__.split(".")[-1].upper())
         try:
             jobs = scraper_module.fetch_jobs()
