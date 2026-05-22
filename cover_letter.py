@@ -40,13 +40,26 @@ STRICT FORMAT RULES — follow exactly, no exceptions:
 - Do NOT start with "Dear", "To Whom It May Concern", or any salutation
 - Open directly with a confident, specific first sentence about why this role
 - Maximum 3 paragraphs
-- Paragraph 1 (2-3 sentences): Why this specific role at this specific company
-- Paragraph 2 (3-4 sentences): What Yang brings that is directly relevant — use the job's own language, mirror their keywords, be specific
-- Paragraph 3 (1-2 sentences): Express interest in discussing further, keep it direct and confident
+
+- Paragraph 1 (2-3 sentences): Why this specific role at this specific company.
+  Reference the company by name. Be specific about what draws her to this role —
+  not generic interest, but something concrete about the team, mandate, or scope.
+
+- Paragraph 2 (3-4 sentences): Pick the 3 most important requirements from the job
+  description. For each one, write a direct sentence that names the requirement
+  using the JD's exact wording, then immediately backs it with a specific example
+  from Yang's experience. Do not generalise — name what she did, where, and what
+  it involved. This paragraph must read like a point-by-point response to what
+  the employer asked for.
+
+- Paragraph 3 (1-2 sentences): Express interest in discussing further.
+  Keep it direct and confident — no hedging, no "I hope to hear from you".
+
 - Close with exactly: "Kind regards," then a blank line then "Yang Yang"
 - Australian spelling throughout (organisation, recognised, behaviour, etc.)
 - Never mention anything not supported by the candidate profile
-- Never use hollow phrases like "I am passionate about", "I would be a great fit", "I am excited to"
+- Never use hollow phrases like "I am passionate about", "I would be a great fit",
+  "I am excited to", "I believe I would"
 - Be direct, specific, and professional — Australian tone, not American
 
 Candidate Profile:
@@ -88,7 +101,12 @@ def generate(job: dict) -> str:
 
     body = resp.content[0].text.strip()
 
-    # Prepend date and subject line
+    # Prepend contact block, date, and subject line
     date_str = datetime.now().strftime("%-d %B %Y")
-    header = f"{date_str}\n\nRe: {title} — {company}\n\n"
+    header = (
+        f"Yang Yang\n"
+        f"0401 877 625  |  yy.lu.33@gmail.com\n\n"
+        f"{date_str}\n\n"
+        f"Re: {title} — {company}\n\n"
+    )
     return header + body
