@@ -162,6 +162,7 @@ def fetch_jobs() -> list:
                 "docs_done":  p.get("DocsGenerated", {}).get("checkbox", False),
                 "favorite":   p.get("Favorite", {}).get("checkbox", False),
                 "ai_reason":  _text(p.get("AIReason", {})),
+                "description": _text(p.get("Description", {})),
             })
         if not data.get("has_more"):
             break
@@ -253,10 +254,17 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
     </div>
     """, unsafe_allow_html=True)
 
+    # AI reason — shown prominently right under the score
     if job.get("ai_reason"):
-        st.caption(f"🤖 AI assessment: {job['ai_reason']}")
+        st.markdown(
+            f'<div style="background:#0f172a;border-left:3px solid #3b82f6;'
+            f'padding:0.5rem 0.8rem;border-radius:0 6px 6px 0;margin:0.5rem 0;'
+            f'font-size:0.85rem;color:#94a3b8;">'
+            f'🤖 {job["ai_reason"]}</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("<div style='height:0.5rem'/>", unsafe_allow_html=True)
+    st.markdown("<div style='height:0.4rem'/>", unsafe_allow_html=True)
 
     # Action row
     col_link, col_fav, col_ign = st.columns([2, 1, 1])
@@ -281,9 +289,10 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
                 st.cache_data.clear()
                 st.rerun()
 
-    if job.get("keywords"):
-        with st.expander("Keywords matched"):
-            st.caption(job["keywords"])
+    # Job description snippet
+    if job.get("description"):
+        with st.expander("📋 About this role"):
+            st.markdown(job["description"][:1800])
 
     st.divider()
 

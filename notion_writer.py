@@ -77,8 +77,8 @@ def _existing_hashes(database_id: str) -> set:
     return hashes
 
 
-def _ensure_ai_reason_property(database_id: str) -> None:
-    """Add AIReason rich_text property to the Notion DB schema if it doesn't exist yet."""
+def _ensure_schema_properties(database_id: str) -> None:
+    """Add AIReason and Description rich_text properties if they don't exist yet."""
     global _ai_reason_property_ensured
     if _ai_reason_property_ensured:
         return
@@ -94,14 +94,18 @@ def _ensure_ai_reason_property(database_id: str) -> None:
         resp = httpx.get(db_url, headers=headers, timeout=15)
         if resp.status_code != 200:
             return
-        if "AIReason" not in resp.json().get("properties", {}):
-            httpx.patch(
-                db_url, headers=headers, timeout=15,
-                json={"properties": {"AIReason": {"rich_text": {}}}},
-            )
-            logger.info("Notion schema: added AIReason property")
+        existing = resp.json().get("properties", {})
+        new_props = {}
+        if "AIReason" not in existing:
+            new_props["AIReason"] = {"rich_text": {}}
+        if "Description" not in existing:
+            new_props["Description"] = {"rich_text": {}}
+        if new_props:
+            httpx.patch(db_url, headers=headers, timeout=15,
+                        json={"properties": new_props})
+            logger.info(f"Notion schema: added {list(new_props.keys())}")
     except Exception as exc:
-        logger.warning(f"Could not ensure AIReason property: {exc}")
+        logger.warning(f"Could not ensure schema properties: {exc}")
 
 
 def _build_page_properties(job: dict, database_id: str) -> dict:
@@ -129,6 +133,10 @@ def _build_page_properties(job: dict, database_id: str) -> dict:
     llm_reason = job.get("llm_reason", "")
     if llm_reason:
         props["AIReason"] = {"rich_text": [{"text": {"content": safe_text(llm_reason, 500)}}]}
+
+    description = job.get("description", "")
+    if description:
+        props["Description"] = {"rich_text": [{"text": {"content": safe_text(description, 1800)}}]}
 
     # DatePosted — Notion requires ISO 8601
     raw_date = job.get("date_posted", "")
@@ -161,7 +169,7 @@ def write_new_jobs(jobs: List[dict], database_id: str) -> int:
     Write jobs that pass the relevance threshold and haven't been seen before.
     Returns the count of newly written pages.
     """
-    _ensure_ai_reason_property(database_id)
+    _ensure_schema_properties(database_id)
     client = _get_client()
     existing = _existing_hashes(database_id)
     written = 0
