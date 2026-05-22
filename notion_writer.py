@@ -16,6 +16,7 @@ from notion_client import Client
 logger = logging.getLogger(__name__)
 
 _client: Optional[Client] = None
+_ai_reason_property_ensured = False  # run the schema check once per process
 
 
 def _get_client() -> Client:
@@ -76,6 +77,33 @@ def _existing_hashes(database_id: str) -> set:
     return hashes
 
 
+def _ensure_ai_reason_property(database_id: str) -> None:
+    """Add AIReason rich_text property to the Notion DB schema if it doesn't exist yet."""
+    global _ai_reason_property_ensured
+    if _ai_reason_property_ensured:
+        return
+    _ai_reason_property_ensured = True
+
+    headers = {
+        "Authorization": f"Bearer {os.environ['NOTION_API_KEY']}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+    db_url = f"https://api.notion.com/v1/databases/{_format_id(database_id)}"
+    try:
+        resp = httpx.get(db_url, headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return
+        if "AIReason" not in resp.json().get("properties", {}):
+            httpx.patch(
+                db_url, headers=headers, timeout=15,
+                json={"properties": {"AIReason": {"rich_text": {}}}},
+            )
+            logger.info("Notion schema: added AIReason property")
+    except Exception as exc:
+        logger.warning(f"Could not ensure AIReason property: {exc}")
+
+
 def _build_page_properties(job: dict, database_id: str) -> dict:
     kw_str = ", ".join(job.get("keywords_matched", []))
 
@@ -97,6 +125,10 @@ def _build_page_properties(job: dict, database_id: str) -> dict:
         "Seen": {"checkbox": False},
         "DeduplicationHash": {"rich_text": [{"text": {"content": job.get("_hash", "")}}]},
     }
+
+    llm_reason = job.get("llm_reason", "")
+    if llm_reason:
+        props["AIReason"] = {"rich_text": [{"text": {"content": safe_text(llm_reason, 500)}}]}
 
     # DatePosted — Notion requires ISO 8601
     raw_date = job.get("date_posted", "")
@@ -129,6 +161,7 @@ def write_new_jobs(jobs: List[dict], database_id: str) -> int:
     Write jobs that pass the relevance threshold and haven't been seen before.
     Returns the count of newly written pages.
     """
+    _ensure_ai_reason_property(database_id)
     client = _get_client()
     existing = _existing_hashes(database_id)
     written = 0

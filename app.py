@@ -161,6 +161,7 @@ def fetch_jobs() -> list:
                 "status_log": _text(p.get("StatusLog", {})),
                 "docs_done":  p.get("DocsGenerated", {}).get("checkbox", False),
                 "favorite":   p.get("Favorite", {}).get("checkbox", False),
+                "ai_reason":  _text(p.get("AIReason", {})),
             })
         if not data.get("has_more"):
             break
@@ -251,6 +252,9 @@ def detail_panel(job: dict, is_ignored: bool = False) -> None:
         <span class="score-badge" style="color:{score_color};">▲ Match score: {s}/10</span>
     </div>
     """, unsafe_allow_html=True)
+
+    if job.get("ai_reason"):
+        st.caption(f"🤖 AI assessment: {job['ai_reason']}")
 
     st.markdown("<div style='height:0.5rem'/>", unsafe_allow_html=True)
 
