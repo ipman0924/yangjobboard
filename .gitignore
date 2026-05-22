@@ -1,0 +1,7 @@
+.env
+.streamlit/secrets.toml
+logs/
+data/optimised_resumes/
+__pycache__/
+*.pyc
+.DS_Store
