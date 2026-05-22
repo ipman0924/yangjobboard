@@ -71,20 +71,20 @@ You are tailoring Yang Yang's resume for a specific job. You must work ONLY with
 experience and skills already present in the base resume — never add anything new.
 
 Rules:
-- Rewrite the Professional Summary (2-3 short paragraphs) to directly address this role
-- Rewrite the Core Skills list (10-12 skills max) to prioritise the most relevant ones
+- Rewrite the Professional Summary as ONE tight paragraph, 3-4 sentences maximum.
+  Do not use multiple paragraphs. Be direct and specific to this role.
+- Rewrite the Core Skills list (10-12 skills max) to prioritise the most relevant ones.
+  Write each skill as a short phrase only — no dashes or bullets, just the phrase.
 - Rewrite the experience bullets for each role to surface the most relevant points first,
-  using the job's own language where it accurately reflects what Yang did
-- Keep all employers, titles, dates, and education exactly as they are
-- Never invent responsibilities, tools, certifications, or outcomes not in the original
+  using the job's own language where it accurately reflects what Yang did.
+- Keep each bullet to ONE concise line — strictly under 100 characters. Cut any bullet
+  that cannot be made concise without losing meaning.
+- Keep all employers, titles, dates, and education exactly as they are.
+- Never invent responsibilities, tools, certifications, or outcomes not in the original.
 - Output ONLY structured text in this exact format, nothing else:
 
 SUMMARY
-[paragraph 1]
-
-[paragraph 2]
-
-[paragraph 3 if needed]
+[single paragraph, 3-4 sentences]
 
 SKILLS
 [Skill 1]
@@ -228,11 +228,11 @@ def _set_font(run, size_pt: float, bold: bool = False,
 
 def _section_heading(doc: Document, text: str, template: str) -> None:
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(2)
     run = p.add_run(text)
     color = BLUE if template == "risk" else BLACK
-    _set_font(run, 11, bold=True, color=color)
+    _set_font(run, 10.5, bold=True, color=color)
 
 
 def build_resume_docx(job: dict) -> bytes:
@@ -242,63 +242,57 @@ def build_resume_docx(job: dict) -> bytes:
 
     doc = Document()
 
-    # Page margins
+    # Tighter margins
     for section in doc.sections:
-        section.top_margin    = Cm(2.0)
-        section.bottom_margin = Cm(2.0)
-        section.left_margin   = Cm(2.54)
-        section.right_margin  = Cm(2.54)
+        section.top_margin    = Cm(1.8)
+        section.bottom_margin = Cm(1.8)
+        section.left_margin   = Cm(2.2)
+        section.right_margin  = Cm(2.2)
 
-    # Remove default paragraph spacing
     style = doc.styles['Normal']
     style.font.name = "Calibri"
-    style.font.size = Pt(11)
+    style.font.size = Pt(10)
     style.paragraph_format.space_after = Pt(0)
 
     # --- Name ---
     name_para = doc.add_paragraph()
-    name_para.paragraph_format.space_after = Pt(2)
+    name_para.paragraph_format.space_after = Pt(1)
     name_run = name_para.add_run("Yang Yang")
-    _set_font(name_run, 20, bold=True)
+    _set_font(name_run, 18, bold=True)
 
     if template == "risk":
-        # Blue underline rule directly under name
         _add_horizontal_rule(doc)
 
-    # --- Contact ---
+    # --- Contact (single line) ---
     contact_para = doc.add_paragraph()
-    contact_para.paragraph_format.space_after = Pt(2)
-    c1 = contact_para.add_run("Sydney NSW | Australian Permanent Resident")
-    _set_font(c1, 10, color=DARK_GREY)
-
-    contact_para2 = doc.add_paragraph()
-    contact_para2.paragraph_format.space_after = Pt(6)
-    c2 = contact_para2.add_run("0401 877 625 | yy.lu.33@gmail.com")
-    _set_font(c2, 10, color=DARK_GREY)
+    contact_para.paragraph_format.space_after = Pt(5)
+    c = contact_para.add_run(
+        "Sydney NSW  |  Australian Permanent Resident  |  0401 877 625  |  yy.lu.33@gmail.com"
+    )
+    _set_font(c, 9.5, color=DARK_GREY)
 
     if template == "lending":
         _add_horizontal_rule(doc)
 
     # --- Professional Summary ---
     _section_heading(doc, "Professional Summary", template)
-    for para_text in content["summary"]:
-        p = doc.add_paragraph()
-        p.paragraph_format.space_after = Pt(4)
-        run = p.add_run(para_text)
-        _set_font(run, 11)
+    # Summary is now a single paragraph from Haiku
+    summary_text = " ".join(content["summary"])
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(3)
+    run = p.add_run(summary_text)
+    _set_font(run, 10)
 
     if template == "lending":
         _add_horizontal_rule(doc)
 
-    # --- Core Skills ---
+    # --- Core Skills (inline, pipe-separated) ---
     _section_heading(doc, "Core Skills", template)
-    prefix = "–" if template == "risk" else "•"
-    for skill in content["skills"]:
-        p = doc.add_paragraph()
-        p.paragraph_format.space_after = Pt(1)
-        p.paragraph_format.left_indent = Inches(0.15)
-        run = p.add_run(f"{prefix} {skill}")
-        _set_font(run, 11)
+    skills_line = "  ·  ".join(content["skills"])
+    p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(3)
+    run = p.add_run(skills_line)
+    _set_font(run, 10)
 
     if template == "lending":
         _add_horizontal_rule(doc)
@@ -313,30 +307,28 @@ def build_resume_docx(job: dict) -> bytes:
     ]
 
     for role_name, role_meta in roles_order:
-        # Role title (bold)
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(6)
+        p.paragraph_format.space_before = Pt(5)
         p.paragraph_format.space_after = Pt(1)
         run = p.add_run(role_name)
-        _set_font(run, 11, bold=True)
+        _set_font(run, 10.5, bold=True)
 
-        # Role meta (location | dates)
         p2 = doc.add_paragraph()
-        p2.paragraph_format.space_after = Pt(3)
+        p2.paragraph_format.space_after = Pt(2)
         run2 = p2.add_run(role_meta)
-        _set_font(run2, 11, color=DARK_GREY)
+        _set_font(run2, 9.5, color=DARK_GREY)
 
         bullets = _find_role_bullets(role_name, content["roles"])
-
         for bullet_text in bullets:
             p3 = doc.add_paragraph(style='List Bullet' if template == "lending" else 'Normal')
-            p3.paragraph_format.space_after = Pt(2)
-            p3.paragraph_format.left_indent = Inches(0.25)
+            p3.paragraph_format.space_after = Pt(1)
+            p3.paragraph_format.left_indent   = Inches(0.2)
+            p3.paragraph_format.first_line_indent = Inches(-0.2)
             if template == "risk":
                 run3 = p3.add_run(f"– {bullet_text}")
             else:
                 run3 = p3.add_run(bullet_text)
-            _set_font(run3, 11)
+            _set_font(run3, 10)
 
         if template == "lending":
             _add_horizontal_rule(doc)
@@ -346,11 +338,10 @@ def build_resume_docx(job: dict) -> bytes:
     for line in ["Master of Finance – Western Sydney University",
                  "Bachelor of Accounting – Southern Cross University"]:
         p = doc.add_paragraph()
-        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.space_after = Pt(1)
         run = p.add_run(line)
-        _set_font(run, 11)
+        _set_font(run, 10)
 
-    # Save to bytes
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
@@ -395,59 +386,54 @@ def build_resume_pdf(job: dict) -> bytes:
     head_color = RL_BLUE if template == "risk" else black
 
     buf = io.BytesIO()
+    # Tighter margins — more breathing room for content
     doc = SimpleDocTemplate(buf, pagesize=A4,
-                            topMargin=2*rl_cm, bottomMargin=2*rl_cm,
-                            leftMargin=2.54*rl_cm, rightMargin=2.54*rl_cm)
+                            topMargin=1.8*rl_cm, bottomMargin=1.8*rl_cm,
+                            leftMargin=2.0*rl_cm,  rightMargin=2.0*rl_cm)
 
-    name_s    = _rl_style("Name",    fontName="Helvetica-Bold", fontSize=20, spaceAfter=3)
-    contact_s = _rl_style("Contact", fontName="Helvetica",      fontSize=10, textColor=RL_GREY, spaceAfter=2)
-    head_s    = _rl_style("Head",    fontName="Helvetica-Bold", fontSize=11, textColor=head_color, spaceBefore=10, spaceAfter=3)
-    body_s    = _rl_style("Body",    fontName="Helvetica",      fontSize=11, spaceAfter=3, leading=14)
-    bullet_s  = _rl_style("Bullet",  fontName="Helvetica",      fontSize=11, spaceAfter=2, leading=14, leftIndent=12)
-    role_s    = _rl_style("Role",    fontName="Helvetica-Bold", fontSize=11, spaceBefore=8, spaceAfter=2)
-    meta_s    = _rl_style("Meta",    fontName="Helvetica",      fontSize=11, textColor=RL_GREY, spaceAfter=3)
+    # Compact type scale
+    name_s    = _rl_style("Name",    fontName="Helvetica-Bold", fontSize=18, spaceAfter=2)
+    contact_s = _rl_style("Contact", fontName="Helvetica",      fontSize=9.5, textColor=RL_GREY, spaceAfter=4)
+    head_s    = _rl_style("Head",    fontName="Helvetica-Bold", fontSize=10.5,
+                          textColor=head_color, spaceBefore=7, spaceAfter=2)
+    body_s    = _rl_style("Body",    fontName="Helvetica",      fontSize=10, spaceAfter=2, leading=12)
+    # Hanging indent: dash sits at left edge, wrapped text indents past it
+    bullet_s  = _rl_style("Bullet",  fontName="Helvetica",      fontSize=10, spaceAfter=1,
+                          leading=12, leftIndent=14, firstLineIndent=-14)
+    role_s    = _rl_style("Role",    fontName="Helvetica-Bold", fontSize=10.5, spaceBefore=6, spaceAfter=1)
+    meta_s    = _rl_style("Meta",    fontName="Helvetica",      fontSize=9.5, textColor=RL_GREY, spaceAfter=2)
 
     def hr(color=black):
-        return HRFlowable(width="100%", thickness=0.5, color=color, spaceBefore=4, spaceAfter=4)
+        return HRFlowable(width="100%", thickness=0.5, color=color, spaceBefore=2, spaceAfter=2)
 
     story = []
+
+    # Name + contact
     story.append(Paragraph("Yang Yang", name_s))
     if template == "risk":
         story.append(hr(RL_BLUE))
-    story.append(Paragraph("Sydney NSW | Australian Permanent Resident", contact_s))
-    story.append(Paragraph("0401 877 625 | yy.lu.33@gmail.com", contact_s))
-    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        "Sydney NSW  |  Australian Permanent Resident  |  0401 877 625  |  yy.lu.33@gmail.com",
+        contact_s,
+    ))
     if template == "lending":
         story.append(hr())
 
+    # Professional Summary — single paragraph
     story.append(Paragraph("Professional Summary", head_s))
-    for p in content["summary"]:
-        story.append(Paragraph(p, body_s))
+    summary_text = " ".join(content["summary"])
+    story.append(Paragraph(summary_text, body_s))
     if template == "lending":
         story.append(hr())
 
+    # Core Skills — inline, separated by · to avoid column-wrapping mess
     story.append(Paragraph("Core Skills", head_s))
-    # Two-column skill layout — halves vertical space
-    prefix = "–" if template == "risk" else "•"
-    skills = content["skills"]
-    skill_rows = []
-    for i in range(0, len(skills), 2):
-        left  = Paragraph(f"{prefix} {skills[i]}", bullet_s)
-        right = Paragraph(f"{prefix} {skills[i + 1]}", bullet_s) if i + 1 < len(skills) else Paragraph("", bullet_s)
-        skill_rows.append([left, right])
-    if skill_rows:
-        skill_tbl = Table(skill_rows, colWidths=["50%", "50%"])
-        skill_tbl.setStyle(TableStyle([
-            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
-            ("TOPPADDING",    (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        story.append(skill_tbl)
+    skills_line = "  ·  ".join(content["skills"])
+    story.append(Paragraph(skills_line, body_s))
     if template == "lending":
         story.append(hr())
 
+    # Professional Experience
     story.append(Paragraph("Professional Experience", head_s))
     roles_order = [
         ("Bank of China Australia – Credit Risk Manager",           "Sydney Head Office | 2019 – 2023"),
@@ -458,12 +444,12 @@ def build_resume_pdf(job: dict) -> bytes:
     for role_name, role_meta in roles_order:
         story.append(Paragraph(role_name, role_s))
         story.append(Paragraph(role_meta, meta_s))
-        bullets = _find_role_bullets(role_name, content["roles"])
-        for bt in bullets:
-            story.append(Paragraph(f"{bullet_prefix} {bt}", bullet_s))
+        for bt in _find_role_bullets(role_name, content["roles"]):
+            story.append(Paragraph(f"{bullet_prefix}  {bt}", bullet_s))
         if template == "lending":
             story.append(hr())
 
+    # Education
     story.append(Paragraph("Education", head_s))
     story.append(Paragraph("Master of Finance – Western Sydney University", body_s))
     story.append(Paragraph("Bachelor of Accounting – Southern Cross University", body_s))
