@@ -30,7 +30,21 @@ _HEADERS = {
 # Search terms — broad enough to catch all of Yang's target roles
 _SEARCH_TERMS = ["risk", "credit", "lending", "controls", "compliance"]
 
-# Location strings that clearly indicate overseas — skip these
+# Locations that confirm a Sydney/NSW role — always keep
+_SYDNEY_SIGNALS = ["sydney", "nsw", "new south wales"]
+
+# Ambiguous multi-location strings — keep (could include Sydney)
+_MULTI_LOCATION_SIGNALS = ["locations", "remote", "flexible", "hybrid", "australia"]
+
+# Non-Sydney Australian cities/states — skip
+_OTHER_AU_SIGNALS = [
+    "melbourne", "vic ", "victoria", "brisbane", "qld", "queensland",
+    "perth", "wa ", "western australia", "adelaide", "south australia",
+    "canberra", "act ", "darwin", "hobart", "tasmania",
+    "aus vic", "aus qld", "aus wa", "aus sa",
+]
+
+# Overseas locations — skip
 _OVERSEAS_SIGNALS = [
     "bangalore", "chennai", "mumbai", "hyderabad", "india",
     "london", "new york", "singapore", "hong kong", "auckland",
@@ -64,10 +78,35 @@ _INSTITUTIONS = [
 ]
 
 
-def _is_overseas(location_text: str) -> bool:
-    """Return True if the location clearly points to an overseas office."""
+def _is_sydney_or_ambiguous(location_text: str) -> bool:
+    """
+    Return True if the location is Sydney/NSW, ambiguous (multi-location),
+    or blank (unknown). Return False for clearly non-Sydney AU cities/states
+    or overseas locations.
+    """
+    if not location_text:
+        return True  # blank — let through, Haiku will handle
+
     lower = location_text.lower()
-    return any(sig in lower for sig in _OVERSEAS_SIGNALS)
+
+    # Explicitly overseas → reject
+    if any(sig in lower for sig in _OVERSEAS_SIGNALS):
+        return False
+
+    # Explicitly another AU state/city → reject
+    if any(sig in lower for sig in _OTHER_AU_SIGNALS):
+        return False
+
+    # Confirmed Sydney/NSW → accept
+    if any(sig in lower for sig in _SYDNEY_SIGNALS):
+        return True
+
+    # Multi-location / remote / ambiguous → accept (could include Sydney)
+    if any(sig in lower for sig in _MULTI_LOCATION_SIGNALS):
+        return True
+
+    # Unknown single location not matched above → accept cautiously
+    return True
 
 
 def _strip_html(html: str) -> str:
@@ -132,10 +171,9 @@ def _fetch_institution(inst: dict) -> List[dict]:
                 continue
 
             loc_text = posting.get("locationsText", "")
-            # Skip roles with a clearly overseas single location
-            if loc_text and loc_text not in ("2 Locations", "Multiple Locations"):
-                if _is_overseas(loc_text):
-                    continue
+            if not _is_sydney_or_ambiguous(loc_text):
+                logger.debug(f"Skipping non-Sydney role: {posting.get('title','?')} | {loc_text}")
+                continue
 
             seen.add(ext_path)
 
