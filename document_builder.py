@@ -67,42 +67,75 @@ def _pick_template(job: dict) -> Literal["lending", "risk"]:
 # ---------------------------------------------------------------------------
 
 _TAILOR_PROMPT = """\
-You are tailoring Yang Yang's resume for a specific job. You must work ONLY with the
-experience and skills already present in the base resume — never add anything new.
+You are an expert ATS resume writer. Tailor Yang Yang's resume to maximise its score
+in Applicant Tracking Systems (ATS) for the target role below.
 
-Rules:
-- Rewrite the Professional Summary as ONE tight paragraph, 3-4 sentences maximum.
-  Do not use multiple paragraphs. Be direct and specific to this role.
-- Rewrite the Core Skills list (10-12 skills max) to prioritise the most relevant ones.
-  Write each skill as a short phrase only — no dashes or bullets, just the phrase.
-- Rewrite the experience bullets for each role to surface the most relevant points first,
-  using the job's own language where it accurately reflects what Yang did.
-- Keep each bullet to ONE concise line — strictly under 100 characters. Cut any bullet
-  that cannot be made concise without losing meaning.
-- Keep all employers, titles, dates, and education exactly as they are.
-- Never invent responsibilities, tools, certifications, or outcomes not in the original.
-- Output ONLY structured text in this exact format, nothing else:
+You must work ONLY with experience already in the base resume — never invent anything.
+The goal is to secure a first interview by scoring as high as possible against the ATS,
+while remaining completely truthful.
+
+=== ATS RULES — follow every one ===
+
+KEYWORD STRATEGY
+- Read the job description carefully. Identify every skill, tool, and phrase that
+  appears 2 or more times — these are the highest-weight ATS keywords.
+- Use those EXACT phrases (copy/paste verbatim, do not paraphrase) in the Summary,
+  Skills list, and experience bullets wherever they accurately describe what Yang did.
+  ATS matches exact strings. "controls assurance" ≠ "control assurance review".
+- Include both spelled-out and abbreviated forms where relevant (e.g. "APRA" and
+  "Australian Prudential Regulation Authority" if the JD uses both).
+
+PROFESSIONAL SUMMARY
+- Open sentence must mirror the target job title or role type as closely as possible.
+  Example: if the role is "Senior Analyst – Controls Assurance", start with
+  "Senior controls assurance professional with X years..."
+- Pack the paragraph with high-frequency JD keywords. Every sentence should contain
+  at least one exact JD phrase.
+- Exactly 1 paragraph, 3-4 sentences. No more.
+
+CORE SKILLS
+- Include every skill term from the JD requirements that Yang genuinely has.
+  If the JD says "risk in change" — list it exactly as "Risk in Change".
+- 10-12 skills maximum. One skill per line, plain phrase, no bullets or dashes.
+- Order by relevance: most JD-critical skills first.
+
+EXPERIENCE BULLETS
+- Lead every bullet with a strong action verb: Led, Conducted, Assessed, Identified,
+  Delivered, Drove, Reviewed, Escalated, Monitored, Evaluated, Managed, Supported.
+  Avoid weak openers: "Responsible for", "Assisted with", "Involved in".
+- Use JD language verbatim in bullets where it accurately describes Yang's work.
+- For the most recent role (Credit Risk Manager): write 8-10 bullets, surface the
+  most JD-relevant work first.
+- For ARM and Teller: 3-4 bullets each, focused on transferable relevance.
+- Keep bullets factual. Never invent numbers, outcomes, or tools not in the base resume.
+
+FIXED RULES
+- Keep all employers, titles, dates, and education exactly as written.
+- Never invent responsibilities, certifications, or outcomes.
+- Output ONLY the structured text below — no commentary, no preamble.
+
+=== OUTPUT FORMAT (exact) ===
 
 SUMMARY
-[single paragraph, 3-4 sentences]
+[single paragraph]
 
 SKILLS
 [Skill 1]
 [Skill 2]
-[...up to 12]
+[...up to 12, one per line]
 
 ROLE: Bank of China Australia – Credit Risk Manager
 [bullet 1]
 [bullet 2]
-[...all bullets]
+[...8-10 bullets]
 
 ROLE: Bank of China Australia – Assistant Relationship Manager
 [bullet 1]
-[...]
+[...3-4 bullets]
 
 ROLE: Bank of China Australia – Teller
 [bullet 1]
-[...]
+[...3-4 bullets]
 
 Candidate profile: {profile}
 
@@ -122,7 +155,7 @@ def _tailor_content(job: dict, template: str) -> dict:
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=2000,
+        max_tokens=3000,
         messages=[{
             "role": "user",
             "content": _TAILOR_PROMPT.format(
@@ -251,7 +284,7 @@ def build_resume_docx(job: dict) -> bytes:
 
     style = doc.styles['Normal']
     style.font.name = "Calibri"
-    style.font.size = Pt(10)
+    style.font.size = Pt(10.5)
     style.paragraph_format.space_after = Pt(0)
 
     # --- Name ---
@@ -276,23 +309,24 @@ def build_resume_docx(job: dict) -> bytes:
 
     # --- Professional Summary ---
     _section_heading(doc, "Professional Summary", template)
-    # Summary is now a single paragraph from Haiku
     summary_text = " ".join(content["summary"])
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(3)
     run = p.add_run(summary_text)
-    _set_font(run, 10)
+    _set_font(run, 10.5)
 
     if template == "lending":
         _add_horizontal_rule(doc)
 
-    # --- Core Skills (inline, pipe-separated) ---
+    # --- Core Skills (one per line — ATS extracts skills line-by-line) ---
     _section_heading(doc, "Core Skills", template)
-    skills_line = "  ·  ".join(content["skills"])
-    p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(3)
-    run = p.add_run(skills_line)
-    _set_font(run, 10)
+    sk_prefix = "–" if template == "risk" else "•"
+    for skill in content["skills"]:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(1)
+        p.paragraph_format.left_indent = Inches(0.15)
+        run = p.add_run(f"{sk_prefix}  {skill}")
+        _set_font(run, 10.5)
 
     if template == "lending":
         _add_horizontal_rule(doc)
@@ -325,10 +359,10 @@ def build_resume_docx(job: dict) -> bytes:
             p3.paragraph_format.left_indent   = Inches(0.2)
             p3.paragraph_format.first_line_indent = Inches(-0.2)
             if template == "risk":
-                run3 = p3.add_run(f"– {bullet_text}")
+                run3 = p3.add_run(f"–  {bullet_text}")
             else:
                 run3 = p3.add_run(bullet_text)
-            _set_font(run3, 10)
+            _set_font(run3, 10.5)
 
         if template == "lending":
             _add_horizontal_rule(doc)
@@ -340,7 +374,7 @@ def build_resume_docx(job: dict) -> bytes:
         p = doc.add_paragraph()
         p.paragraph_format.space_after = Pt(1)
         run = p.add_run(line)
-        _set_font(run, 10)
+        _set_font(run, 10.5)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -380,38 +414,46 @@ def _rl_style(name: str, **kw) -> ParagraphStyle:
 
 
 def build_resume_pdf(job: dict) -> bytes:
-    """Generate a PDF resume using reportlab — works on Streamlit Cloud."""
-    template = _pick_template(job)
-    content  = _tailor_content(job, template)
+    """Generate an ATS-optimised PDF resume using reportlab."""
+    template   = _pick_template(job)
+    content    = _tailor_content(job, template)
     head_color = RL_BLUE if template == "risk" else black
 
     buf = io.BytesIO()
-    # Tighter margins — more breathing room for content
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            topMargin=1.8*rl_cm, bottomMargin=1.8*rl_cm,
-                            leftMargin=2.0*rl_cm,  rightMargin=2.0*rl_cm)
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=1.8*rl_cm, bottomMargin=1.8*rl_cm,
+        leftMargin=2.0*rl_cm, rightMargin=2.0*rl_cm,
+    )
 
-    # Compact type scale
+    # Type scale — 10.5pt body is comfortable for human reviewers who get past ATS
     name_s    = _rl_style("Name",    fontName="Helvetica-Bold", fontSize=18, spaceAfter=2)
-    contact_s = _rl_style("Contact", fontName="Helvetica",      fontSize=9.5, textColor=RL_GREY, spaceAfter=4)
-    head_s    = _rl_style("Head",    fontName="Helvetica-Bold", fontSize=10.5,
-                          textColor=head_color, spaceBefore=7, spaceAfter=2)
-    body_s    = _rl_style("Body",    fontName="Helvetica",      fontSize=10, spaceAfter=2, leading=12)
-    # Hanging indent: dash sits at left edge, wrapped text indents past it
-    bullet_s  = _rl_style("Bullet",  fontName="Helvetica",      fontSize=10, spaceAfter=1,
-                          leading=12, leftIndent=14, firstLineIndent=-14)
-    role_s    = _rl_style("Role",    fontName="Helvetica-Bold", fontSize=10.5, spaceBefore=6, spaceAfter=1)
-    meta_s    = _rl_style("Meta",    fontName="Helvetica",      fontSize=9.5, textColor=RL_GREY, spaceAfter=2)
+    contact_s = _rl_style("Contact", fontName="Helvetica",      fontSize=10,
+                          textColor=RL_GREY, spaceAfter=4)
+    head_s    = _rl_style("Head",    fontName="Helvetica-Bold", fontSize=11,
+                          textColor=head_color, spaceBefore=8, spaceAfter=3)
+    body_s    = _rl_style("Body",    fontName="Helvetica",      fontSize=10.5,
+                          spaceAfter=3, leading=14)
+    # Hanging indent: bullet character at left, wrapped text clears it
+    bullet_s  = _rl_style("Bullet",  fontName="Helvetica",      fontSize=10.5,
+                          spaceAfter=2, leading=14, leftIndent=14, firstLineIndent=-14)
+    skill_s   = _rl_style("Skill",   fontName="Helvetica",      fontSize=10.5,
+                          spaceAfter=1, leading=13)
+    role_s    = _rl_style("Role",    fontName="Helvetica-Bold", fontSize=10.5,
+                          spaceBefore=7, spaceAfter=1)
+    meta_s    = _rl_style("Meta",    fontName="Helvetica",      fontSize=10,
+                          textColor=RL_GREY, spaceAfter=3)
 
     def hr(color=black):
-        return HRFlowable(width="100%", thickness=0.5, color=color, spaceBefore=2, spaceAfter=2)
+        return HRFlowable(width="100%", thickness=0.5, color=color, spaceBefore=3, spaceAfter=3)
 
     story = []
 
-    # Name + contact
+    # ── Header ──────────────────────────────────────────────────────────────────
     story.append(Paragraph("Yang Yang", name_s))
     if template == "risk":
         story.append(hr(RL_BLUE))
+    # Single contact line — ATS parsers handle | delimiters fine
     story.append(Paragraph(
         "Sydney NSW  |  Australian Permanent Resident  |  0401 877 625  |  yy.lu.33@gmail.com",
         contact_s,
@@ -419,28 +461,33 @@ def build_resume_pdf(job: dict) -> bytes:
     if template == "lending":
         story.append(hr())
 
-    # Professional Summary — single paragraph
+    # ── Professional Summary ─────────────────────────────────────────────────────
+    # Single keyword-dense paragraph that mirrors the target role
     story.append(Paragraph("Professional Summary", head_s))
-    summary_text = " ".join(content["summary"])
-    story.append(Paragraph(summary_text, body_s))
+    story.append(Paragraph(" ".join(content["summary"]), body_s))
     if template == "lending":
         story.append(hr())
 
-    # Core Skills — inline, separated by · to avoid column-wrapping mess
+    # ── Core Skills ──────────────────────────────────────────────────────────────
+    # ATS extracts skills line-by-line — one per line is the gold standard.
+    # NO tables: table cells often parse as a single mangled string in ATS text extractors.
     story.append(Paragraph("Core Skills", head_s))
-    skills_line = "  ·  ".join(content["skills"])
-    story.append(Paragraph(skills_line, body_s))
+    bullet_prefix = "–" if template == "risk" else "•"
+    for skill in content["skills"]:
+        story.append(Paragraph(f"{bullet_prefix}  {skill}", skill_s))
     if template == "lending":
         story.append(hr())
 
-    # Professional Experience
+    # ── Professional Experience ──────────────────────────────────────────────────
     story.append(Paragraph("Professional Experience", head_s))
     roles_order = [
-        ("Bank of China Australia – Credit Risk Manager",           "Sydney Head Office | 2019 – 2023"),
-        ("Bank of China Australia – Assistant Relationship Manager", "Hurstville Branch | 2016 – 2019"),
-        ("Bank of China Australia – Teller",                        "Hurstville Branch | 2013 – 2015"),
+        ("Bank of China Australia – Credit Risk Manager",
+         "Sydney Head Office  |  2019 – 2023"),
+        ("Bank of China Australia – Assistant Relationship Manager",
+         "Hurstville Branch  |  2016 – 2019"),
+        ("Bank of China Australia – Teller",
+         "Hurstville Branch  |  2013 – 2015"),
     ]
-    bullet_prefix = "–" if template == "risk" else "•"
     for role_name, role_meta in roles_order:
         story.append(Paragraph(role_name, role_s))
         story.append(Paragraph(role_meta, meta_s))
@@ -449,7 +496,7 @@ def build_resume_pdf(job: dict) -> bytes:
         if template == "lending":
             story.append(hr())
 
-    # Education
+    # ── Education ────────────────────────────────────────────────────────────────
     story.append(Paragraph("Education", head_s))
     story.append(Paragraph("Master of Finance – Western Sydney University", body_s))
     story.append(Paragraph("Bachelor of Accounting – Southern Cross University", body_s))
