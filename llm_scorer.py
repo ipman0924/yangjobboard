@@ -20,8 +20,11 @@ from pathlib import Path
 from typing import List, Optional
 import anthropic
 from config import CLAUDE_MODEL, HIGH_MATCH_THRESHOLD, NOTION_WRITE_THRESHOLD, RESUME_OPTIMISE_THRESHOLD
+from settings_store import load_prompt
 
 logger = logging.getLogger(__name__)
+
+SCORE_PROMPT_FILE = "score_prompt.txt"
 
 _client: Optional[anthropic.Anthropic] = None
 _candidate_profile: Optional[str] = None
@@ -120,7 +123,7 @@ def llm_score_jobs(jobs: List[dict]) -> List[dict]:
                 max_tokens=100,
                 messages=[{
                     "role": "user",
-                    "content": _SCORE_PROMPT.format(
+                    "content": load_prompt(SCORE_PROMPT_FILE, _SCORE_PROMPT).format(
                         background=profile,
                         title=title,
                         company=company,

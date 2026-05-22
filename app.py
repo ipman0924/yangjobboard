@@ -11,6 +11,11 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 from pathlib import Path
+from settings_store import (
+    load_prompt, save_prompt, delete_prompt_override,
+    load_config_overrides, save_config_overrides,
+    load_data_file, save_data_file,
+)
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
@@ -431,10 +436,246 @@ def render_table(jobs: list, tab_key: str, is_ignored: bool = False) -> None:
             )
 
 
+# ── Settings page ─────────────────────────────────────────────────────────────
+def settings_page() -> None:
+    st.markdown("# ⚙️ Settings")
+    st.markdown(
+        '<p class="sub">Changes take effect on the next job monitor run. '
+        'Cover letter and resume prompts apply immediately to new generations.</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Lazy-import defaults from each module so the hardcoded text is the ground truth
+    from llm_scorer        import _SCORE_PROMPT         as _D_SCORE
+    from llm_scorer        import SCORE_PROMPT_FILE
+    from cover_letter      import _COVER_LETTER_PROMPT  as _D_CL
+    from cover_letter      import COVER_LETTER_PROMPT_FILE
+    from resume_optimizer  import _OPTIMISE_PROMPT      as _D_OPT
+    from resume_optimizer  import _SCORE_PROMPT         as _D_RSCORE
+    from resume_optimizer  import OPTIMISE_PROMPT_FILE, RESUME_SCORE_PROMPT_FILE
+    from document_builder  import _TAILOR_PROMPT        as _D_TAILOR
+    from document_builder  import TAILOR_PROMPT_FILE
+    from config import (
+        SEARCH_QUERY_TERMS, NOTION_WRITE_THRESHOLD,
+        RESUME_OPTIMISE_THRESHOLD, HIGH_MATCH_THRESHOLD, RUN_INTERVAL_HOURS,
+    )
+
+    tab_profile, tab_resumes, tab_prompts, tab_search = st.tabs([
+        "📋 Profile",
+        "📄 Resumes",
+        "🤖 Prompts",
+        "🔍 Search & Scoring",
+    ])
+
+    # ── Profile ───────────────────────────────────────────────────────────────
+    with tab_profile:
+        st.markdown("##### Candidate Profile")
+        st.caption(
+            "Used by the job scorer, resume optimiser, and cover letter generator "
+            "to understand Yang's background and target roles."
+        )
+        profile_text = load_data_file("candidate_profile.txt")
+        new_profile = st.text_area(
+            "candidate_profile.txt", value=profile_text, height=500,
+            label_visibility="collapsed",
+        )
+        if st.button("💾 Save Profile", key="save_profile"):
+            save_data_file("candidate_profile.txt", new_profile)
+            st.success("Profile saved.")
+
+    # ── Resumes ───────────────────────────────────────────────────────────────
+    with tab_resumes:
+        st.markdown("##### General Resume")
+        st.caption("Used for lending, credit assessment, and broad banking roles.")
+        res_gen = load_data_file("resume_general.txt")
+        new_res_gen = st.text_area(
+            "resume_general.txt", value=res_gen, height=400,
+            label_visibility="collapsed", key="res_gen",
+        )
+        if st.button("💾 Save General Resume", key="save_res_gen"):
+            save_data_file("resume_general.txt", new_res_gen)
+            st.success("General resume saved.")
+
+        st.divider()
+
+        st.markdown("##### Controls & Risk Resume")
+        st.caption("Used when the role matches risk/controls/governance/APRA signals.")
+        res_risk = load_data_file("resume_control_risk.txt")
+        new_res_risk = st.text_area(
+            "resume_control_risk.txt", value=res_risk, height=400,
+            label_visibility="collapsed", key="res_risk",
+        )
+        if st.button("💾 Save Risk Resume", key="save_res_risk"):
+            save_data_file("resume_control_risk.txt", new_res_risk)
+            st.success("Risk resume saved.")
+
+    # ── Prompts ───────────────────────────────────────────────────────────────
+    with tab_prompts:
+        st.caption(
+            "Each prompt below is sent to Claude Haiku. "
+            "Use `{placeholder}` syntax — available variables are shown under each editor. "
+            "Click **Reset to default** to discard your override."
+        )
+
+        def _prompt_editor(label: str, file: str, default: str, variables: str) -> None:
+            st.markdown(f"##### {label}")
+            st.caption(f"Variables: `{variables}`")
+            current = load_prompt(file, default)
+            is_overridden = (Path(__file__).parent / "data" / "prompts" / file).exists()
+            if is_overridden:
+                st.info("⚡ Override active — this prompt overrides the built-in default.")
+            new_val = st.text_area(
+                label, value=current, height=380,
+                label_visibility="collapsed", key=f"prompt_{file}",
+            )
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                if st.button(f"💾 Save", key=f"save_{file}"):
+                    save_prompt(file, new_val)
+                    st.success(f"Saved.")
+            with c2:
+                if is_overridden:
+                    if st.button("↩️ Reset to default", key=f"reset_{file}"):
+                        delete_prompt_override(file)
+                        st.success("Override removed — using built-in default.")
+                        st.rerun()
+
+        _prompt_editor(
+            "Job Scoring Prompt",
+            SCORE_PROMPT_FILE, _D_SCORE,
+            "{background}, {title}, {company}, {description}",
+        )
+        st.divider()
+        _prompt_editor(
+            "Cover Letter Prompt",
+            COVER_LETTER_PROMPT_FILE, _D_CL,
+            "{profile}, {title}, {company}, {description}",
+        )
+        st.divider()
+        _prompt_editor(
+            "ATS Resume Tailor Prompt",
+            TAILOR_PROMPT_FILE, _D_TAILOR,
+            "{profile}, {title}, {company}, {description}, {resume}",
+        )
+        st.divider()
+        _prompt_editor(
+            "Resume Optimise Prompt",
+            OPTIMISE_PROMPT_FILE, _D_OPT,
+            "{candidate_profile}, {title}, {company}, {description}, {resume}",
+        )
+        st.divider()
+        _prompt_editor(
+            "Resume Match Scoring Prompt",
+            RESUME_SCORE_PROMPT_FILE, _D_RSCORE,
+            "{candidate_profile}, {title}, {company}, {description}, {resume}",
+        )
+
+    # ── Search & Scoring ──────────────────────────────────────────────────────
+    with tab_search:
+        overrides = load_config_overrides()
+
+        st.markdown("##### Search Query Terms")
+        st.caption(
+            "One term per line. These are the keywords sent to SEEK and other scrapers. "
+            "Broad terms (e.g. 'risk') catch more jobs; Haiku filters down from there."
+        )
+        current_terms = overrides.get("search_query_terms", SEARCH_QUERY_TERMS)
+        terms_text = st.text_area(
+            "Search terms", value="\n".join(current_terms), height=160,
+            label_visibility="collapsed", key="search_terms",
+        )
+
+        st.divider()
+        st.markdown("##### Scoring Thresholds")
+        st.caption("Haiku scores every job 0–10. These thresholds control what gets written and flagged.")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            write_t = st.number_input(
+                "Write to Notion (≥)", min_value=0, max_value=10,
+                value=overrides.get("notion_write_threshold", NOTION_WRITE_THRESHOLD),
+                help="Jobs below this score are silently dropped.",
+            )
+        with c2:
+            opt_t = st.number_input(
+                "Optimise resume (≥)", min_value=0, max_value=10,
+                value=overrides.get("resume_optimise_threshold", RESUME_OPTIMISE_THRESHOLD),
+                help="Jobs at or above this score get a tailored resume.",
+            )
+        with c3:
+            high_t = st.number_input(
+                "High match flag (≥)", min_value=0, max_value=10,
+                value=overrides.get("high_match_threshold", HIGH_MATCH_THRESHOLD),
+                help="Jobs at or above this are flagged HIGH MATCH.",
+            )
+
+        st.divider()
+        st.markdown("##### Schedule")
+        interval = st.number_input(
+            "Run interval (hours)", min_value=1, max_value=168,
+            value=overrides.get("run_interval_hours", RUN_INTERVAL_HOURS),
+            help="How often the job monitor runs automatically.",
+        )
+
+        if st.button("💾 Save Search & Scoring Config", key="save_search_cfg"):
+            new_terms = [t.strip() for t in terms_text.splitlines() if t.strip()]
+            save_config_overrides({
+                "search_query_terms":        new_terms,
+                "notion_write_threshold":    int(write_t),
+                "resume_optimise_threshold": int(opt_t),
+                "high_match_threshold":      int(high_t),
+                "run_interval_hours":        int(interval),
+            })
+            st.success("Config saved. Changes take effect on the next job monitor run.")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 st.markdown("# 💼 Yang's Job Board")
 st.markdown('<p class="sub">AI-qualified banking opportunities · refreshed every 24 hours · '
             'click any row to open the detail pane</p>', unsafe_allow_html=True)
+
+# ── Sidebar (collapsible via the built-in › arrow) ────────────────────────────
+with st.sidebar:
+    # Settings nav button — toggles between board and settings views
+    if st.session_state.get("page") == "settings":
+        if st.button("← Back to Board", use_container_width=True):
+            st.session_state["page"] = "board"
+            st.rerun()
+    else:
+        if st.button("⚙️ Settings", use_container_width=True):
+            st.session_state["page"] = "settings"
+            st.rerun()
+
+    st.divider()
+
+    if st.session_state.get("page") != "settings":
+        st.markdown("## Filters")
+
+        show_favs = st.toggle("⭐ Favourites only", value=False)
+
+        sel_statuses = st.multiselect(
+            "Application status", STATUS_OPTIONS, default=STATUS_OPTIONS,
+        )
+
+        score_range = st.slider("Score range", 0, 10, (3, 10))
+
+        st.divider()
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+        st.divider()
+        st.markdown("**How to use**")
+        st.markdown(
+            "Click any row to open the detail pane on the right. "
+            "Click **✕ Close** to dismiss it. "
+            "Use the **›** arrow at the top-left of this sidebar to hide it."
+        )
+
+# ── Settings page (full-page override) ───────────────────────────────────────
+if st.session_state.get("page") == "settings":
+    settings_page()
+    st.stop()
 
 with st.spinner("Loading..."):
     try:
@@ -445,31 +686,6 @@ with st.spinner("Loading..."):
 
 active  = [j for j in all_jobs if j["status"] != "Ignored"]
 ignored = [j for j in all_jobs if j["status"] == "Ignored"]
-
-# ── Sidebar (collapsible via the built-in › arrow) ────────────────────────────
-with st.sidebar:
-    st.markdown("## Filters")
-
-    show_favs = st.toggle("⭐ Favourites only", value=False)
-
-    sel_statuses = st.multiselect(
-        "Application status", STATUS_OPTIONS, default=STATUS_OPTIONS,
-    )
-
-    score_range = st.slider("Score range", 0, 10, (3, 10))
-
-    st.divider()
-    if st.button("🔄 Refresh", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-
-    st.divider()
-    st.markdown("**How to use**")
-    st.markdown(
-        "Click any row to open the detail pane on the right. "
-        "Click **✕ Close** to dismiss it. "
-        "Use the **›** arrow at the top-left of this sidebar to hide it."
-    )
 
 # Apply filters
 filtered = [

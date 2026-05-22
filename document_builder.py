@@ -29,6 +29,9 @@ from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from config import CLAUDE_MODEL, CONTROL_RISK_SIGNALS
+from settings_store import load_prompt
+
+TAILOR_PROMPT_FILE = "ats_tailor_prompt.txt"
 
 _client: Optional[anthropic.Anthropic] = None
 _PROFILE_PATH        = Path(__file__).parent / "data" / "candidate_profile.txt"
@@ -201,7 +204,7 @@ def _tailor_content(job: dict, template: str) -> dict:
         max_tokens=3000,
         messages=[{
             "role": "user",
-            "content": _TAILOR_PROMPT.format(
+            "content": load_prompt(TAILOR_PROMPT_FILE, _TAILOR_PROMPT).format(
                 profile=profile[:2500],
                 title=job.get("title", ""),
                 company=job.get("company", ""),

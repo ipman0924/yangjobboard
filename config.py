@@ -218,3 +218,23 @@ CONTROL_RISK_SIGNALS = [
 # ---------------------------------------------------------------------------
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+
+# ---------------------------------------------------------------------------
+# Runtime overrides from data/settings.json (edited via the Settings UI)
+# Keys here shadow the defaults above when present.
+# ---------------------------------------------------------------------------
+
+import json as _json
+from pathlib import Path as _Path
+
+_settings_path = _Path(__file__).parent / "data" / "settings.json"
+if _settings_path.exists():
+    try:
+        _ov = _json.loads(_settings_path.read_text(encoding="utf-8"))
+        if "search_query_terms"      in _ov: SEARCH_QUERY_TERMS      = _ov["search_query_terms"]
+        if "notion_write_threshold"  in _ov: NOTION_WRITE_THRESHOLD  = int(_ov["notion_write_threshold"])
+        if "resume_optimise_threshold" in _ov: RESUME_OPTIMISE_THRESHOLD = int(_ov["resume_optimise_threshold"])
+        if "high_match_threshold"    in _ov: HIGH_MATCH_THRESHOLD    = int(_ov["high_match_threshold"])
+        if "run_interval_hours"      in _ov: RUN_INTERVAL_HOURS      = int(_ov["run_interval_hours"])
+    except Exception:
+        pass

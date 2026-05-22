@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Optional
 import anthropic
 from config import CLAUDE_MODEL
+from settings_store import load_prompt
+
+COVER_LETTER_PROMPT_FILE = "cover_letter_prompt.txt"
 
 _client: Optional[anthropic.Anthropic] = None
 
@@ -90,7 +93,7 @@ def generate(job: dict) -> str:
         max_tokens=600,
         messages=[{
             "role": "user",
-            "content": _COVER_LETTER_PROMPT.format(
+            "content": load_prompt(COVER_LETTER_PROMPT_FILE, _COVER_LETTER_PROMPT).format(
                 profile=profile[:3000],
                 title=title,
                 company=company,

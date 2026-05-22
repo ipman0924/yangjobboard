@@ -21,6 +21,10 @@ from config import (
     RESUME_CONTROL_RISK_PATH,
     CONTROL_RISK_SIGNALS,
 )
+from settings_store import load_prompt
+
+OPTIMISE_PROMPT_FILE = "resume_optimise_prompt.txt"
+RESUME_SCORE_PROMPT_FILE = "resume_score_prompt.txt"
 
 CANDIDATE_PROFILE_PATH = Path(__file__).parent / "data" / "candidate_profile.txt"
 
@@ -177,7 +181,7 @@ def optimise_jobs(jobs: List[dict]) -> List[dict]:
                 max_tokens=1500,
                 messages=[{
                     "role": "user",
-                    "content": _OPTIMISE_PROMPT.format(
+                    "content": load_prompt(OPTIMISE_PROMPT_FILE, _OPTIMISE_PROMPT).format(
                         candidate_profile=candidate_profile[:2000],
                         title=title,
                         company=company,
@@ -206,7 +210,7 @@ def optimise_jobs(jobs: List[dict]) -> List[dict]:
                 max_tokens=150,
                 messages=[{
                     "role": "user",
-                    "content": _SCORE_PROMPT.format(
+                    "content": load_prompt(RESUME_SCORE_PROMPT_FILE, _SCORE_PROMPT).format(
                         candidate_profile=candidate_profile[:1500],
                         title=title,
                         company=company,
